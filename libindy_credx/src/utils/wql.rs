@@ -61,7 +61,7 @@ impl<'de> Deserialize<'de> for Query {
                 parse_query(map).map_err(|err| de::Error::custom(err))
             }
             _ => Err(de::Error::missing_field(
-                "Restiction must be either object or array",
+                "Restriction must be either object or array",
             )),
         }
     }

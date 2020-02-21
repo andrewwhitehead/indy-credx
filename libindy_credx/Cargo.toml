@@ -16,13 +16,18 @@ crate-type = ["staticlib", "rlib", "cdylib"]
 bs58 = "0.3.0"
 lazy_static = "1.3"
 log = "0.4.8"
-log-derive = "0.3.0"
 named_type = "0.2.1"
 named_type_derive = "0.2.1"
 rand = "0.7.0"
 regex = "1.2.1"
 serde = "1.0.99"
-serde_json = "1.0.40"
 serde_derive = "1.0.99"
+serde_json = "1.0.40"
+tempfile = "3.1.0"
 thiserror = "1.0.9"
-ursa = "0.3.2"
+
+[dependencies.ursa]
+version = "0.3.2"
+default-features = false
+# FIXME - we don't need ed25519, but ursa won't build without additional features
+features = ["ed25519", "cl_native", "log", "serde"]

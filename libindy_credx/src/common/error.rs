@@ -20,8 +20,6 @@ pub struct IndyError {
 #[derive(Debug, Error, PartialEq)]
 pub enum IndyErrorKind {
     // General errors
-    #[error("Crypto error")]
-    Crypto,
     #[error("Input error")]
     Input,
     #[error("IO error")]
@@ -30,7 +28,7 @@ pub enum IndyErrorKind {
     InvalidState,
     #[error("Unexpected error")]
     Unexpected,
-    //
+    // Credential/proof errors
     #[error("Credential revoked")]
     CredentialRevoked,
     #[error("Invalid revocation accumulator index")]
@@ -90,6 +88,12 @@ impl From<IndyError> for IndyErrorKind {
 impl From<IndyErrorKind> for IndyError {
     fn from(kind: IndyErrorKind) -> IndyError {
         IndyError::new(kind, None, None)
+    }
+}
+
+impl From<std::io::Error> for IndyError {
+    fn from(err: std::io::Error) -> Self {
+        IndyError::new(IndyErrorKind::IOError, None, Some(Box::new(err)))
     }
 }
 

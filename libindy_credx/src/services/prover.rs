@@ -1,14 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
-use ursa::cl::issuer::Issuer as CryptoIssuer;
-use ursa::cl::prover::Prover as CryptoProver;
-use ursa::cl::verifier::Verifier as CryptoVerifier;
-use ursa::cl::{
-    BlindedCredentialSecrets, BlindedCredentialSecretsCorrectnessProof, CredentialPublicKey,
-    CredentialSecretsBlindingFactors, MasterSecret, SubProofRequest,
-};
-
 use crate::common::error::prelude::*;
 use crate::domain::credential::{AttributeValues, Credential};
 use crate::domain::credential_attr_tag_policy::CredentialAttrTagPolicy;
@@ -32,6 +24,12 @@ use crate::domain::revocation_state::RevocationState;
 use crate::domain::schema::{SchemaId, SchemaV1};
 use crate::services::helpers::*;
 use crate::utils::wql::Query;
+
+use super::{
+    BlindedCredentialSecrets, BlindedCredentialSecretsCorrectnessProof, CredentialPublicKey,
+    CredentialSecretsBlindingFactors, CryptoIssuer, CryptoProver, CryptoVerifier, MasterSecret,
+    SubProofRequest,
+};
 
 const ATTRIBUTE_EXISTENCE_MARKER: &str = "1";
 

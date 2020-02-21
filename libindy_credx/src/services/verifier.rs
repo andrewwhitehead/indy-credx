@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use regex::Regex;
+
 use crate::common::error::prelude::*;
 use crate::domain::credential_definition::{CredentialDefinitionId, CredentialDefinitionV1};
 use crate::domain::proof::{Identifier, Proof, RequestedProof, RevealedAttributeInfo};
@@ -14,9 +16,8 @@ use crate::domain::schema::{SchemaId, SchemaV1};
 use crate::services::helpers::*;
 
 use crate::utils::wql::Query;
-use regex::Regex;
-use ursa::cl::verifier::Verifier as CryptoVerifier;
-use ursa::cl::{new_nonce, CredentialPublicKey, Nonce};
+
+use super::{new_nonce, CredentialPublicKey, CryptoVerifier, Nonce};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Filter {

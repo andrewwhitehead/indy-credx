@@ -7,12 +7,11 @@ use crate::utils::qualifier;
 use crate::utils::validation::Validatable;
 
 use ursa::cl::{
-    CredentialKeyCorrectnessProof, CredentialPrimaryPublicKey, CredentialPrivateKey,
+    CredentialPrimaryPublicKey, CredentialPrivateKey, CredentialPublicKey,
     CredentialRevocationPublicKey,
 };
 
 use named_type::NamedType;
-use std::collections::HashMap;
 
 pub const CL_SIGNATURE_TYPE: &str = "CL";
 
@@ -29,25 +28,39 @@ impl SignatureType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CredentialDefinitionConfig {
-    #[serde(default)]
+    pub signature_type: Option<SignatureType>,
     pub support_revocation: bool,
 }
 
-impl Default for CredentialDefinitionConfig {
-    fn default() -> Self {
-        CredentialDefinitionConfig {
-            support_revocation: false,
+impl CredentialDefinitionConfig {
+    pub fn new(support_revocation: bool, signature_type: Option<SignatureType>) -> Self {
+        Self {
+            signature_type,
+            support_revocation,
         }
     }
 }
+
+impl Validatable for CredentialDefinitionConfig {}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CredentialDefinitionData {
     pub primary: CredentialPrimaryPublicKey,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revocation: Option<CredentialRevocationPublicKey>,
+}
+
+impl CredentialDefinitionData {
+    pub fn try_clone(&self) -> IndyResult<CredentialDefinitionData> {
+        let primary = self.primary.try_clone()?;
+        let revocation = self.revocation.clone();
+        Ok(CredentialDefinitionData {
+            primary,
+            revocation,
+        })
+    }
 }
 
 #[derive(Deserialize, Debug, Serialize)]
@@ -61,18 +74,29 @@ pub struct CredentialDefinitionV1 {
     pub value: CredentialDefinitionData,
 }
 
+impl CredentialDefinitionV1 {
+    pub fn get_public_key(&self) -> IndyResult<CredentialPublicKey> {
+        let key = CredentialPublicKey::build_from_parts(
+            &self.value.primary,
+            self.value.revocation.as_ref(),
+        )?;
+        Ok(key)
+    }
+}
+
+impl Validatable for CredentialDefinitionV1 {
+    fn validate(&self) -> IndyResult<()> {
+        self.id.validate()?;
+        self.schema_id.validate()?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, NamedType)]
 #[serde(tag = "ver")]
 pub enum CredentialDefinition {
     #[serde(rename = "1.0")]
     CredentialDefinitionV1(CredentialDefinitionV1),
-}
-
-#[derive(Debug, Serialize, Deserialize, NamedType)]
-pub struct TemporaryCredentialDefinition {
-    pub cred_def: CredentialDefinition,
-    pub cred_def_priv_key: CredentialDefinitionPrivateKey,
-    pub cred_def_correctness_proof: CredentialDefinitionCorrectnessProof,
 }
 
 impl CredentialDefinition {
@@ -91,45 +115,17 @@ impl CredentialDefinition {
     }
 }
 
-impl From<CredentialDefinition> for CredentialDefinitionV1 {
-    fn from(cred_def: CredentialDefinition) -> Self {
-        match cred_def {
-            CredentialDefinition::CredentialDefinitionV1(cred_def) => cred_def,
+impl Validatable for CredentialDefinition {
+    fn validate(&self) -> IndyResult<()> {
+        match self {
+            CredentialDefinition::CredentialDefinitionV1(cred_def) => cred_def.validate(),
         }
     }
-}
-
-pub type CredentialDefinitions = HashMap<CredentialDefinitionId, CredentialDefinition>;
-
-pub fn cred_defs_map_to_cred_defs_v1_map(
-    cred_defs: CredentialDefinitions,
-) -> HashMap<CredentialDefinitionId, CredentialDefinitionV1> {
-    cred_defs
-        .into_iter()
-        .map(|(cred_def_id, cred_def)| (cred_def_id, CredentialDefinitionV1::from(cred_def)))
-        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, NamedType)]
 pub struct CredentialDefinitionPrivateKey {
     pub value: CredentialPrivateKey,
-}
-
-#[derive(Debug, Serialize, Deserialize, NamedType)]
-pub struct CredentialDefinitionCorrectnessProof {
-    pub value: CredentialKeyCorrectnessProof,
-}
-
-impl Validatable for CredentialDefinition {
-    fn validate(&self) -> IndyResult<()> {
-        match self {
-            CredentialDefinition::CredentialDefinitionV1(cred_def) => {
-                cred_def.id.validate()?;
-                cred_def.schema_id.validate()?;
-                Ok(())
-            }
-        }
-    }
 }
 
 qualifiable_type!(CredentialDefinitionId);
@@ -264,8 +260,6 @@ impl Validatable for CredentialDefinitionId {
         Ok(())
     }
 }
-
-impl Validatable for CredentialDefinitionConfig {}
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,7 @@
 use super::DELIMITER;
 
 use named_type::NamedType;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
@@ -19,6 +19,28 @@ pub struct SchemaV1 {
     #[serde(rename = "attrNames")]
     pub attr_names: AttributeNames,
     pub seq_no: Option<u32>,
+}
+
+impl Validatable for SchemaV1 {
+    fn validate(&self) -> IndyResult<()> {
+        self.attr_names.validate()?;
+        self.id.validate()?;
+        if let Some((_, name, version)) = self.id.parts() {
+            if name != self.name {
+                return Err(input_err(format!(
+                    "Inconsistent Schema Id and Schema Name: {:?} and {}",
+                    self.id, self.name
+                )));
+            }
+            if version != self.version {
+                return Err(input_err(format!(
+                    "Inconsistent Schema Id and Schema Version: {:?} and {}",
+                    self.id, self.version
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, NamedType)]
@@ -42,21 +64,12 @@ impl Schema {
     }
 }
 
-impl From<Schema> for SchemaV1 {
-    fn from(schema: Schema) -> Self {
-        match schema {
-            Schema::SchemaV1(schema) => schema,
+impl Validatable for Schema {
+    fn validate(&self) -> IndyResult<()> {
+        match self {
+            Schema::SchemaV1(schema) => schema.validate(),
         }
     }
-}
-
-pub type Schemas = HashMap<SchemaId, Schema>;
-
-pub fn schemas_map_to_schemas_v1_map(schemas: Schemas) -> HashMap<SchemaId, SchemaV1> {
-    schemas
-        .into_iter()
-        .map(|(schema_id, schema)| (schema_id, SchemaV1::from(schema)))
-        .collect()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -78,32 +91,6 @@ impl From<HashSet<String>> for AttributeNames {
 impl Into<HashSet<String>> for AttributeNames {
     fn into(self) -> HashSet<String> {
         self.0
-    }
-}
-
-impl Validatable for Schema {
-    fn validate(&self) -> IndyResult<()> {
-        match self {
-            Schema::SchemaV1(schema) => {
-                schema.attr_names.validate()?;
-                schema.id.validate()?;
-                if let Some((_, name, version)) = schema.id.parts() {
-                    if name != schema.name {
-                        return Err(input_err(format!(
-                            "Inconsistent Schema Id and Schema Name: {:?} and {}",
-                            schema.id, schema.name
-                        )));
-                    }
-                    if version != schema.version {
-                        return Err(input_err(format!(
-                            "Inconsistent Schema Id and Schema Version: {:?} and {}",
-                            schema.id, schema.version
-                        )));
-                    }
-                }
-                Ok(())
-            }
-        }
     }
 }
 
