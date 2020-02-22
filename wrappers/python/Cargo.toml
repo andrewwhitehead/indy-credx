@@ -1,0 +1,27 @@
+[package]
+name = "indy-credx-py"
+version = "0.1.0"
+authors = ["Hyperledger Indy Contributors <hyperledger-indy@lists.hyperledger.org>"]
+edition = "2018"
+
+description = ""
+license = "MIT/Apache-2.0"
+
+[lib]
+name = "indy_credx_py"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[features]
+default = ["extension-module"]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+env_logger = "0.7.1"
+log = "0.4.8"
+pyo3 = { git = "https://github.com/pyo3/pyo3", rev = "90b14fb36904ccbd91ce8adf121c38d23c8b4a4c" }
+serde = "1.0.99"
+serde_derive = "1.0.99"
+serde_json = "1.0.40"
+zeroize = { version = "1.1" }
+indy-credx = { "path" = "../../libindy_credx" }
