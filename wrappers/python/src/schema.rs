@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use pyo3::class::PyObjectProtocol;
 use pyo3::prelude::*;
-use pyo3::types::{PySequence, PyString};
+use pyo3::types::{PySequence, PyString, PyType};
 use pyo3::wrap_pyfunction;
 use pyo3::ObjectProtocol;
 
@@ -63,6 +63,13 @@ impl PySchema {
         match &self.inner {
             Schema::SchemaV1(s) => Ok(s.attr_names.0.iter().cloned().collect()),
         }
+    }
+
+    #[classmethod]
+    pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
+        let inner = serde_json::from_str::<Schema>(&json.to_string()?)
+            .map_py_err_msg("Error parsing schema JSON")?;
+        Ok(Self { inner })
     }
 
     pub fn to_json(&self) -> PyResult<String> {

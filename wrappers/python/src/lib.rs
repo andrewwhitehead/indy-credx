@@ -6,7 +6,10 @@ use pyo3::wrap_pyfunction;
 
 mod buffer;
 mod cred_def;
+mod cred_offer;
+mod cred_request;
 mod error;
+mod master_secret;
 mod schema;
 
 /*#[pyfunction]
@@ -50,7 +53,11 @@ fn set_default_logger() {
 #[pymodule]
 fn indy_credx(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_test_buffer))?;
+
     cred_def::register(py, m)?;
+    cred_offer::register(py, m)?;
+    cred_request::register(py, m)?;
+    master_secret::register(py, m)?;
     schema::register(py, m)?;
 
     m.add_class::<buffer::PySafeBuffer>()?;

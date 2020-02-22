@@ -213,7 +213,7 @@ impl Issuer {
 
     pub fn new_credential_offer(
         cred_def: &CredentialDefinition,
-        correctness_proof: CredentialKeyCorrectnessProof,
+        correctness_proof: &CredentialKeyCorrectnessProof,
     ) -> IndyResult<CredentialOffer> {
         trace!("new_credential_offer >>> cred_def: {:?}", cred_def);
 
@@ -223,10 +223,15 @@ impl Issuer {
             CredentialDefinition::CredentialDefinitionV1(c) => c,
         };
 
+        // FIXME why doesn't correctness proof implement clone?
+        let key_correctness_proof = serde_json::from_value::<CredentialKeyCorrectnessProof>(
+            serde_json::to_value(correctness_proof)?,
+        )?;
+
         let credential_offer = CredentialOffer {
             schema_id: cred_def.schema_id.clone(),
             cred_def_id: cred_def.id.clone(),
-            key_correctness_proof: correctness_proof,
+            key_correctness_proof,
             nonce,
             method_name: None,
         };

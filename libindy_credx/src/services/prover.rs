@@ -1,14 +1,13 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 
+use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
 use crate::domain::credential::{AttributeValues, Credential};
 use crate::domain::credential_attr_tag_policy::CredentialAttrTagPolicy;
-use crate::domain::credential_definition::{
-    CredentialDefinitionId, CredentialDefinitionV1 as CredentialDefinition,
-};
+use crate::domain::credential_definition::{CredentialDefinition, CredentialDefinitionId};
 use crate::domain::credential_offer::CredentialOffer;
-use crate::domain::credential_request::CredentialRequestMetadata;
+use crate::domain::credential_request::{CredentialRequest, CredentialRequestMetadata};
 use crate::domain::proof::{
     AttributeValue, Identifier, Proof, RequestedProof, RevealedAttributeGroupInfo,
     RevealedAttributeInfo, SubProofReferent,
@@ -26,8 +25,7 @@ use crate::services::helpers::*;
 use crate::utils::wql::Query;
 
 use super::{
-    BlindedCredentialSecrets, BlindedCredentialSecretsCorrectnessProof, CredentialPublicKey,
-    CredentialSecretsBlindingFactors, CryptoIssuer, CryptoProver, CryptoVerifier, MasterSecret,
+    new_nonce, CredentialPublicKey, CryptoIssuer, CryptoProver, CryptoVerifier, MasterSecret,
     SubProofRequest,
 };
 
@@ -40,7 +38,7 @@ impl Prover {
         Prover {}
     }
 
-    pub fn new_master_secret(&self) -> IndyResult<MasterSecret> {
+    pub fn new_master_secret() -> IndyResult<MasterSecret> {
         trace!("new_master_secret >>> ");
 
         let master_secret = CryptoProver::new_master_secret()?;
@@ -54,18 +52,18 @@ impl Prover {
     }
 
     pub fn new_credential_request(
-        &self,
+        prover_did: &DidValue,
         cred_def: &CredentialDefinition,
         master_secret: &MasterSecret,
+        master_secret_id: &str,
         credential_offer: &CredentialOffer,
-    ) -> IndyResult<(
-        BlindedCredentialSecrets,
-        CredentialSecretsBlindingFactors,
-        BlindedCredentialSecretsCorrectnessProof,
-    )> {
+    ) -> IndyResult<(CredentialRequest, CredentialRequestMetadata)> {
         trace!("new_credential_request >>> cred_def: {:?}, master_secret: {:?}, credential_offer: {:?}",
                cred_def, secret!(&master_secret), credential_offer);
 
+        let cred_def = match cred_def {
+            CredentialDefinition::CredentialDefinitionV1(cd) => cd,
+        };
         let credential_pub_key = CredentialPublicKey::build_from_parts(
             &cred_def.value.primary,
             cred_def.value.revocation.as_ref(),
@@ -74,25 +72,34 @@ impl Prover {
         credential_values_builder.add_value_hidden("master_secret", &master_secret.value()?)?;
         let cred_values = credential_values_builder.finalize()?;
 
-        let (
-            blinded_credential_secrets,
-            credential_secrets_blinding_factors,
-            blinded_credential_secrets_correctness_proof,
-        ) = CryptoProver::blind_credential_secrets(
-            &credential_pub_key,
-            &credential_offer.key_correctness_proof,
-            &cred_values,
-            &credential_offer.nonce,
-        )?;
+        let nonce = new_nonce()?;
 
-        trace!("new_credential_request <<< blinded_credential_secrets: {:?}, credential_secrets_blinding_factors: {:?}, blinded_credential_secrets_correctness_proof: {:?}",
-               blinded_credential_secrets, credential_secrets_blinding_factors, blinded_credential_secrets_correctness_proof);
+        let (blinded_ms, master_secret_blinding_data, blinded_ms_correctness_proof) =
+            CryptoProver::blind_credential_secrets(
+                &credential_pub_key,
+                &credential_offer.key_correctness_proof,
+                &cred_values,
+                &credential_offer.nonce,
+            )?;
 
-        Ok((
-            blinded_credential_secrets,
-            credential_secrets_blinding_factors,
-            blinded_credential_secrets_correctness_proof,
-        ))
+        let credential_request = CredentialRequest {
+            prover_did: prover_did.clone(),
+            cred_def_id: credential_offer.cred_def_id.clone(),
+            blinded_ms,
+            blinded_ms_correctness_proof,
+            nonce,
+        };
+
+        let credential_request_metadata = CredentialRequestMetadata {
+            master_secret_blinding_data,
+            nonce: credential_request.nonce.try_clone()?,
+            master_secret_name: master_secret_id.to_string(),
+        };
+
+        trace!("new_credential_request <<< credential_request: {:?}, credential_request_metadata: {:?}",
+            credential_request, credential_request_metadata);
+
+        Ok((credential_request, credential_request_metadata))
     }
 
     pub fn process_credential(
@@ -106,6 +113,9 @@ impl Prover {
         trace!("process_credential >>> credential: {:?}, cred_request_metadata: {:?}, master_secret: {:?}, cred_def: {:?}, rev_reg_def: {:?}",
                credential, cred_request_metadata, secret!(&master_secret), cred_def, rev_reg_def);
 
+        let cred_def = match cred_def {
+            CredentialDefinition::CredentialDefinitionV1(cd) => cd,
+        };
         let credential_pub_key = CredentialPublicKey::build_from_parts(
             &cred_def.value.primary,
             cred_def.value.revocation.as_ref(),
@@ -182,6 +192,9 @@ impl Prover {
                         credential.cred_def_id
                     ))
                 })?;
+            let cred_def = match cred_def {
+                CredentialDefinition::CredentialDefinitionV1(cd) => cd,
+            };
 
             let rev_state = if let Some(timestamp) = cred_key.timestamp {
                 let rev_reg_id = credential

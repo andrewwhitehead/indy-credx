@@ -73,7 +73,7 @@ impl fmt::Display for IndyError {
             (kind, Some(msg)) => write!(f, "{}: {}", kind, msg),
         }?;
         if let Some(ref source) = self.source {
-            write!(f, "\n{}", source)?;
+            write!(f, " [{}]", source)?;
         }
         Ok(())
     }

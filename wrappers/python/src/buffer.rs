@@ -10,6 +10,8 @@ use pyo3::{AsPyPointer, PyClassShell};
 
 use zeroize::Zeroize;
 
+use crate::error::PyIndyResult;
+
 #[pyclass(name=SafeBuffer)]
 pub struct PySafeBuffer {
     inner: Vec<u8>,
@@ -27,7 +29,7 @@ impl PyBufferProtocol for PySafeBuffer {
         }
 
         unsafe {
-            debug!("buffer {:p}", slf);
+            debug!("create memory view {:p}", &slf.inner);
             (*view).obj = slf.as_ptr();
             Py_INCREF((*view).obj);
         }
@@ -68,11 +70,11 @@ impl PyBufferProtocol for PySafeBuffer {
         Ok(())
     }
 
-    fn bf_releasebuffer(_slf: &mut PyClassShell<Self>, view: *mut Py_buffer) -> PyResult<()> {
+    fn bf_releasebuffer(slf: &mut PyClassShell<Self>, view: *mut Py_buffer) -> PyResult<()> {
         if view.is_null() {
             return Err(BufferError::py_err("View is null"));
         }
-        debug!("release buffer {:p}", view);
+        debug!("release memory view {:p}", &slf.inner);
         Ok(())
     }
 }
@@ -88,11 +90,19 @@ impl PySafeBuffer {
     pub fn new(buf: Vec<u8>) -> Self {
         Self { inner: buf }
     }
+
+    pub fn deserialize<T>(&self) -> PyResult<T>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let result = serde_json::from_slice::<T>(self.inner.as_slice()).map_py_err()?;
+        Ok(result)
+    }
 }
 
 impl Drop for PySafeBuffer {
     fn drop(&mut self) {
-        debug!("zero buffer {:p}", self);
+        debug!("zero buffer {:p}", &self.inner);
         self.inner.zeroize()
     }
 }
