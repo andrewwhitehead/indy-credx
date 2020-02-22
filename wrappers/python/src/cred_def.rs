@@ -1,3 +1,4 @@
+use pyo3::class::PyObjectProtocol;
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyTuple, PyType};
 use pyo3::wrap_pyfunction;
@@ -16,14 +17,51 @@ pub struct PyCredentialDefinition {
 
 #[pymethods]
 impl PyCredentialDefinition {
+    #[getter]
+    pub fn cred_def_id(&self) -> PyResult<String> {
+        match &self.inner {
+            CredentialDefinition::CredentialDefinitionV1(c) => Ok(c.id.to_string()),
+        }
+    }
+
+    #[getter]
+    pub fn schema_id(&self) -> PyResult<String> {
+        match &self.inner {
+            CredentialDefinition::CredentialDefinitionV1(c) => Ok(c.schema_id.to_string()),
+        }
+    }
+
+    #[getter]
+    pub fn tag(&self) -> PyResult<String> {
+        match &self.inner {
+            CredentialDefinition::CredentialDefinitionV1(c) => Ok(c.tag.to_string()),
+        }
+    }
+
+    #[getter]
+    pub fn signature_type(&self) -> PyResult<String> {
+        match &self.inner {
+            CredentialDefinition::CredentialDefinitionV1(c) => {
+                Ok(c.signature_type.to_str().to_string())
+            }
+        }
+    }
+
     fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner).unwrap())
+        Ok(serde_json::to_string(&self.inner)?)
     }
 
     #[classmethod]
     fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<CredentialDefinition>(&json.to_string()?).unwrap();
         Ok(Self { inner })
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for PyCredentialDefinition {
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("CredentialDefinition({})", self.cred_def_id()?))
     }
 }
 
@@ -45,6 +83,16 @@ impl PyCredentialKeyCorrectnessProof {
         )
         .unwrap();
         Ok(Self { inner })
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for PyCredentialKeyCorrectnessProof {
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!(
+            "CredentialKeyCorrectnessProof({})",
+            self.to_json()?
+        ))
     }
 }
 

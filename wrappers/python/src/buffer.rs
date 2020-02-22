@@ -2,7 +2,7 @@ use std::ffi::CStr;
 use std::os::raw::{c_int, c_void};
 use std::ptr;
 
-use pyo3::class::buffer::PyBufferProtocol;
+use pyo3::class::{PyBufferProtocol, PyObjectProtocol};
 use pyo3::exceptions::BufferError;
 use pyo3::ffi::{PyBUF_FORMAT, PyBUF_ND, PyBUF_STRIDES, PyBUF_WRITABLE, Py_INCREF, Py_buffer};
 use pyo3::prelude::*;
@@ -74,6 +74,13 @@ impl PyBufferProtocol for PySafeBuffer {
         }
         debug!("release buffer {:p}", view);
         Ok(())
+    }
+}
+
+#[pyproto]
+impl PyObjectProtocol for PySafeBuffer {
+    fn __repr__(&self) -> PyResult<String> {
+        Ok(format!("SafeBuffer({:p})", self))
     }
 }
 
