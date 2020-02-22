@@ -5,6 +5,7 @@ use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 
 mod buffer;
+mod cred;
 mod cred_def;
 mod cred_offer;
 mod cred_request;
@@ -54,6 +55,7 @@ fn set_default_logger() {
 fn indy_credx(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_test_buffer))?;
 
+    cred::register(py, m)?;
     cred_def::register(py, m)?;
     cred_offer::register(py, m)?;
     cred_request::register(py, m)?;

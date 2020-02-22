@@ -75,16 +75,19 @@ fn create_credential_request(
     cred_offer: &PyCredentialOffer,
 ) -> PyResult<PyObject> {
     let prover_did = prover_did.to_string()?.to_string();
-
+    let master_secret = &master_secret.extract(py)?;
     let master_secret_id = master_secret_id.to_string()?.to_string();
-    let (request, metadata) = Prover::new_credential_request(
-        &DidValue(prover_did),
-        &cred_def.inner,
-        &master_secret.extract(py)?,
-        master_secret_id.as_str(),
-        &cred_offer.inner,
-    )
-    .map_py_err()?;
+    let (request, metadata) = py
+        .allow_threads(move || {
+            Prover::new_credential_request(
+                &DidValue(prover_did),
+                &cred_def.inner,
+                &master_secret,
+                master_secret_id.as_str(),
+                &cred_offer.inner,
+            )
+        })
+        .map_py_err()?;
     let args: &[PyObject; 2] = &[
         PyCredentialRequest { inner: request }.into_py(py),
         PyCredentialRequestMetadata { inner: metadata }.into_py(py),

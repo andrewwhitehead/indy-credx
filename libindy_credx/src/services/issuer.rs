@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
-use crate::domain::credential::CredentialValues;
+use crate::domain::credential::{Credential, CredentialValues};
 use crate::domain::credential_definition::{
     CredentialDefinition, CredentialDefinitionConfig, CredentialDefinitionData,
     CredentialDefinitionId, CredentialDefinitionV1, SignatureType,
@@ -18,6 +18,9 @@ use crate::domain::revocation_registry_definition::{
     RevocationRegistryDefinitionValue, RevocationRegistryDefinitionValuePublicKeys,
     RevocationRegistryId,
 };
+use crate::domain::revocation_registry_delta::{
+    RevocationRegistryDelta, RevocationRegistryDeltaV1,
+};
 use crate::domain::schema::{AttributeNames, Schema, SchemaId, SchemaV1};
 use crate::services::helpers::*;
 use crate::utils::base58::ToBase58;
@@ -25,9 +28,8 @@ use crate::utils::validation::Validatable;
 
 use super::{
     new_nonce, CredentialKeyCorrectnessProof, CredentialPrivateKey, CredentialPublicKey,
-    CredentialSignature, CryptoIssuer, CryptoRevocationRegistry, Digest, Nonce,
-    RevocationKeyPrivate, RevocationRegistryDelta, RevocationTailsAccessor,
-    RevocationTailsGenerator, Sha256, SignatureCorrectnessProof,
+    CryptoIssuer, CryptoRevocationRegistry, Digest, Nonce, RevocationKeyPrivate,
+    RevocationTailsAccessor, RevocationTailsGenerator, Sha256,
 };
 
 pub struct Issuer {}
@@ -241,26 +243,24 @@ impl Issuer {
     }
 
     pub fn new_credential<RTA>(
-        &self,
-        cred_pub_key: &CredentialPublicKey,
+        cred_def: &CredentialDefinition,
         cred_priv_key: &CredentialPrivateKey,
-        cred_issuance_blinding_nonce: &Nonce,
+        cred_offer: &CredentialOffer,
         cred_request: &CredentialRequest,
         cred_values: &CredentialValues,
         revocation_config: Option<RevocationConfig<RTA>>,
-    ) -> IndyResult<(
-        CredentialSignature,
-        SignatureCorrectnessProof,
-        Option<RevocationRegistryDelta>,
-    )>
+    ) -> IndyResult<(Credential, Option<RevocationRegistryDelta>)>
     where
         RTA: RevocationTailsAccessor,
     {
-        trace!("new_credential >>> cred_pub_key: {:?}, cred_priv_key: {:?}, cred_issuance_blinding_nonce: {:?}, cred_request: {:?},\
+        trace!("new_credential >>> cred_def: {:?}, cred_priv_key: {:?}, cred_offer.nonce: {:?}, cred_request: {:?},\
                cred_values: {:?}, revocation_config: {:?}",
-               cred_pub_key, secret!(&cred_priv_key), secret!(&cred_issuance_blinding_nonce), secret!(&cred_request), secret!(&cred_values), revocation_config,
+               cred_def, secret!(&cred_priv_key), secret!(&cred_offer.nonce), secret!(&cred_request), secret!(&cred_values), revocation_config,
                );
 
+        let cred_pub_key = match cred_def {
+            CredentialDefinition::CredentialDefinitionV1(cd) => cd.get_public_key()?,
+        };
         let credential_values = build_credential_values(&cred_values.0, None)?;
 
         let (credential_signature, signature_correctness_proof, rev_reg_delta) =
@@ -269,7 +269,7 @@ impl Issuer {
                     &cred_request.prover_did.0,
                     &cred_request.blinded_ms,
                     &cred_request.blinded_ms_correctness_proof,
-                    cred_issuance_blinding_nonce,
+                    &cred_offer.nonce,
                     &cred_request.nonce,
                     &credential_values,
                     &cred_pub_key,
@@ -286,7 +286,7 @@ impl Issuer {
                         &cred_request.prover_did.0,
                         &cred_request.blinded_ms,
                         &cred_request.blinded_ms_correctness_proof,
-                        cred_issuance_blinding_nonce,
+                        &cred_offer.nonce,
                         &cred_request.nonce,
                         &credential_values,
                         &cred_pub_key,
@@ -296,14 +296,24 @@ impl Issuer {
                 }
             };
 
-        trace!("new_credential <<< credential_signature {:?}, signature_correctness_proof {:?}, rev_reg_delta {:?}",
-               secret!(&credential_signature), secret!(&signature_correctness_proof), rev_reg_delta);
-
-        Ok((
-            credential_signature,
+        let credential = Credential {
+            schema_id: cred_offer.schema_id.clone(),
+            cred_def_id: cred_offer.cred_def_id.clone(),
+            rev_reg_id: None, //cred_rev_reg_id,
+            values: cred_values.clone(),
+            signature: credential_signature,
             signature_correctness_proof,
-            rev_reg_delta,
-        ))
+            rev_reg: None, // rev_reg.map(|r_reg| r_reg.value),
+            witness: None, // FIXME
+        };
+
+        trace!(
+            "new_credential <<< credential {:?}, rev_reg_delta {:?}",
+            secret!(&credential),
+            rev_reg_delta
+        );
+
+        Ok((credential, None))
     }
 
     pub fn revoke<RTA>(
@@ -326,9 +336,12 @@ impl Issuer {
         let rev_reg_delta =
             CryptoIssuer::revoke_credential(rev_reg, max_cred_num, rev_idx, rev_tails_accessor)?;
 
-        trace!("recovery <<< rev_reg_delta {:?}", rev_reg_delta);
+        let delta = RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
+            value: rev_reg_delta,
+        });
+        trace!("revoke <<< rev_reg_delta {:?}", delta);
 
-        Ok(rev_reg_delta)
+        Ok(delta)
     }
 
     #[allow(dead_code)]
@@ -343,7 +356,7 @@ impl Issuer {
         RTA: RevocationTailsAccessor,
     {
         trace!(
-            "revoke >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
+            "recovery >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
             rev_reg,
             max_cred_num,
             secret!(&rev_idx)
@@ -352,9 +365,12 @@ impl Issuer {
         let rev_reg_delta =
             CryptoIssuer::recovery_credential(rev_reg, max_cred_num, rev_idx, rev_tails_accessor)?;
 
-        trace!("recovery <<< rev_reg_delta {:?}", rev_reg_delta);
+        let delta = RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
+            value: rev_reg_delta,
+        });
+        trace!("recovery <<< rev_reg_delta {:?}", delta);
 
-        Ok(rev_reg_delta)
+        Ok(delta)
     }
 }
 
