@@ -11,6 +11,8 @@ use indy_credx::domain::schema::Schema;
 use indy_credx::services as Services;
 use indy_credx::services::issuer::Issuer;
 
+use crate::error::PyIndyResult;
+
 #[pyclass(name=Schema)]
 pub struct PySchema {
     pub inner: Schema,
@@ -64,7 +66,7 @@ impl PySchema {
     }
 
     pub fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner).unwrap())
+        Ok(serde_json::to_string(&self.inner).map_py_err()?)
     }
 }
 
@@ -99,7 +101,7 @@ fn create_schema(
         &*schema_version,
         attr_names,
     )
-    .unwrap();
+    .map_py_err()?;
     Ok(PySchema { inner: schema })
 }
 

@@ -4,6 +4,7 @@ use pyo3::types::{PyString, PyTuple, PyType};
 use pyo3::wrap_pyfunction;
 
 use crate::buffer::PySafeBuffer;
+use crate::error::PyIndyResult;
 use crate::schema::PySchema;
 use indy_credx::common::did::DidValue;
 use indy_credx::domain::credential_definition::{CredentialDefinition, CredentialDefinitionConfig};
@@ -32,13 +33,6 @@ impl PyCredentialDefinition {
     }
 
     #[getter]
-    pub fn tag(&self) -> PyResult<String> {
-        match &self.inner {
-            CredentialDefinition::CredentialDefinitionV1(c) => Ok(c.tag.to_string()),
-        }
-    }
-
-    #[getter]
     pub fn signature_type(&self) -> PyResult<String> {
         match &self.inner {
             CredentialDefinition::CredentialDefinitionV1(c) => {
@@ -47,13 +41,21 @@ impl PyCredentialDefinition {
         }
     }
 
-    fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner)?)
+    #[getter]
+    pub fn tag(&self) -> PyResult<String> {
+        match &self.inner {
+            CredentialDefinition::CredentialDefinitionV1(c) => Ok(c.tag.to_string()),
+        }
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        Ok(serde_json::to_string(&self.inner).map_py_err()?)
     }
 
     #[classmethod]
-    fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
-        let inner = serde_json::from_str::<CredentialDefinition>(&json.to_string()?).unwrap();
+    pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
+        let inner =
+            serde_json::from_str::<CredentialDefinition>(&json.to_string()?).map_py_err()?;
         Ok(Self { inner })
     }
 }
@@ -73,7 +75,7 @@ pub struct PyCredentialKeyCorrectnessProof {
 #[pymethods]
 impl PyCredentialKeyCorrectnessProof {
     fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner).unwrap())
+        Ok(serde_json::to_string(&self.inner).map_py_err()?)
     }
 
     #[classmethod]
@@ -81,7 +83,7 @@ impl PyCredentialKeyCorrectnessProof {
         let inner = serde_json::from_str::<Services::CredentialKeyCorrectnessProof>(
             &json.to_string_lossy(),
         )
-        .unwrap();
+        .map_py_err()?;
         Ok(Self { inner })
     }
 }
@@ -114,16 +116,17 @@ pub fn create_credential_definition(
         signature_type: None,
         support_revocation: false,
     };
-    let (cred_def, private_key, correctness_proof) = py.allow_threads(move || {
-        Issuer::new_credential_definition(
-            &DidValue(origin_did),
-            &schema.inner,
-            tag.as_str(),
-            config,
-        )
-        .unwrap()
-    });
-    let key_json = serde_json::to_vec(&private_key).unwrap();
+    let (cred_def, private_key, correctness_proof) = py
+        .allow_threads(move || {
+            Issuer::new_credential_definition(
+                &DidValue(origin_did),
+                &schema.inner,
+                tag.as_str(),
+                config,
+            )
+        })
+        .map_py_err()?;
+    let key_json = serde_json::to_vec(&private_key).map_py_err()?;
     let args: &[PyObject; 3] = &[
         PyCredentialDefinition { inner: cred_def }.into_py(py),
         PySafeBuffer::new(key_json).into_py(py),

@@ -6,6 +6,7 @@ use pyo3::wrap_pyfunction;
 
 mod buffer;
 mod cred_def;
+mod error;
 mod schema;
 
 /*#[pyfunction]

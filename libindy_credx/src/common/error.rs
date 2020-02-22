@@ -97,6 +97,13 @@ impl From<std::io::Error> for IndyError {
     }
 }
 
+impl From<serde_json::Error> for IndyError {
+    fn from(err: serde_json::Error) -> Self {
+        // FIXME could be input or output...
+        IndyError::new(IndyErrorKind::Input, None, Some(Box::new(err)))
+    }
+}
+
 impl From<UrsaCryptoError> for IndyError {
     fn from(err: UrsaCryptoError) -> Self {
         // let message = format!("Ursa Crypto Error: {}", Fail::iter_causes(&err).map(|e| e.to_string()).collect::<String>());
