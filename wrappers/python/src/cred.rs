@@ -3,15 +3,17 @@ use pyo3::prelude::*;
 use pyo3::types::PyString;
 use pyo3::wrap_pyfunction;
 
-use indy_credx::domain::credential::CredentialValues;
+use indy_credx::domain::credential::{Credential, CredentialValues};
 use indy_credx::services as Services;
 use indy_credx::services::issuer::Issuer;
+use indy_credx::services::prover::Prover;
 
 use crate::buffer::PySafeBuffer;
 use crate::cred_def::{PyCredentialDefinition, PyCredentialPrivateKey};
 use crate::cred_offer::PyCredentialOffer;
-use crate::cred_request::PyCredentialRequest;
+use crate::cred_request::{PyCredentialRequest, PyCredentialRequestMetadata};
 use crate::error::PyIndyResult;
+use crate::master_secret::PyMasterSecret;
 
 #[pyclass(name=CredentialDefinition)]
 pub struct PyCredential {
@@ -44,6 +46,18 @@ impl PyObjectProtocol for PyCredential {
     }
 }
 
+impl PyCredential {
+    pub fn embed_json(py: Python, value: &Credential) -> PyResult<Self> {
+        Ok(Self {
+            inner: Py::new(py, PySafeBuffer::serialize(value)?)?,
+        })
+    }
+
+    pub fn extract_json(&self, py: Python) -> PyResult<Credential> {
+        self.inner.as_ref(py).deserialize()
+    }
+}
+
 #[pyfunction]
 /// Creates a new credential
 pub fn create_credential(
@@ -60,7 +74,7 @@ pub fn create_credential(
     let cred_values = cred_values.to_string()?;
     let cred_values =
         serde_json::from_str::<CredentialValues>(cred_values.as_ref()).map_py_err()?;
-    let cred_private_key = &cred_private_key.extract(py)?;
+    let cred_private_key = &cred_private_key.extract_json(py)?;
     let (credential, _delta) = py
         .allow_threads(move || {
             Issuer::new_credential::<Services::NullTailsAccessor>(
@@ -79,8 +93,36 @@ pub fn create_credential(
     })
 }
 
+#[pyfunction]
+/// Process a received credential
+pub fn process_credential(
+    py: Python,
+    cred: &PyCredential,
+    cred_req_meta: &PyCredentialRequestMetadata,
+    master_secret: &PyMasterSecret,
+    cred_def: &PyCredentialDefinition,
+    // rev_reg_def: &PyRevocationRegistryDefinition,
+) -> PyResult<PyCredential> {
+    let mut credential = cred.extract_json(py)?;
+    let master_secret = master_secret.extract_json(py)?;
+    let credential = py
+        .allow_threads(move || {
+            Prover::process_credential(
+                &mut credential,
+                &cred_req_meta.inner,
+                &master_secret,
+                &cred_def.inner,
+                None,
+            )
+            .and(Ok(credential))
+        })
+        .map_py_err()?;
+    Ok(PyCredential::embed_json(py, &credential)?)
+}
+
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_credential))?;
+    m.add_wrapped(wrap_pyfunction!(process_credential))?;
     m.add_class::<PyCredential>()?;
     Ok(())
 }

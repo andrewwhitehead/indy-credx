@@ -91,6 +91,14 @@ impl PySafeBuffer {
         Self { inner: buf }
     }
 
+    pub fn serialize<T>(value: &T) -> PyResult<Self>
+    where
+        T: serde::Serialize,
+    {
+        let json = serde_json::to_vec(value).map_py_err()?;
+        Ok(Self::new(json))
+    }
+
     pub fn deserialize<T>(&self) -> PyResult<T>
     where
         T: serde::de::DeserializeOwned,

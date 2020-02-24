@@ -33,7 +33,13 @@ impl PyMasterSecret {
 }
 
 impl PyMasterSecret {
-    pub fn extract(&self, py: Python) -> PyResult<Services::MasterSecret> {
+    pub fn embed_json(py: Python, value: &Services::MasterSecret) -> PyResult<Self> {
+        Ok(Self {
+            inner: Py::new(py, PySafeBuffer::serialize(value)?)?,
+        })
+    }
+
+    pub fn extract_json(&self, py: Python) -> PyResult<Services::MasterSecret> {
         self.inner.as_ref(py).deserialize()
     }
 }
@@ -49,10 +55,7 @@ impl PyObjectProtocol for PyMasterSecret {
 /// Creates a new master secret
 pub fn create_master_secret(py: Python) -> PyResult<PyMasterSecret> {
     let secret = Prover::new_master_secret().map_py_err()?;
-    let secret_json = serde_json::to_vec(&secret).map_py_err()?;
-    Ok(PyMasterSecret {
-        inner: Py::new(py, PySafeBuffer::new(secret_json))?,
-    })
+    Ok(PyMasterSecret::embed_json(py, &secret)?)
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {

@@ -27,9 +27,9 @@ use crate::utils::base58::ToBase58;
 use crate::utils::validation::Validatable;
 
 use super::{
-    new_nonce, CredentialKeyCorrectnessProof, CredentialPrivateKey, CredentialPublicKey,
-    CryptoIssuer, CryptoRevocationRegistry, Digest, Nonce, RevocationKeyPrivate,
-    RevocationTailsAccessor, RevocationTailsGenerator, Sha256,
+    new_nonce, CredentialKeyCorrectnessProof, CredentialPrivateKey, CryptoIssuer,
+    CryptoRevocationRegistry, Digest, RevocationKeyPrivate, RevocationTailsAccessor,
+    RevocationTailsGenerator, Sha256,
 };
 
 pub struct Issuer {}

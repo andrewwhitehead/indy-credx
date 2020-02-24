@@ -18,7 +18,7 @@ use crate::domain::proof_request::{
 };
 use crate::domain::requested_credential::ProvingCredentialKey;
 use crate::domain::requested_credential::RequestedCredentials;
-use crate::domain::revocation_registry_definition::RevocationRegistryDefinitionV1;
+use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
 use crate::domain::revocation_state::RevocationState;
 use crate::domain::schema::{SchemaId, SchemaV1};
 use crate::services::helpers::*;
@@ -103,12 +103,11 @@ impl Prover {
     }
 
     pub fn process_credential(
-        &self,
         credential: &mut Credential,
         cred_request_metadata: &CredentialRequestMetadata,
         master_secret: &MasterSecret,
         cred_def: &CredentialDefinition,
-        rev_reg_def: Option<&RevocationRegistryDefinitionV1>,
+        rev_reg_def: Option<&RevocationRegistryDefinition>,
     ) -> IndyResult<()> {
         trace!("process_credential >>> credential: {:?}, cred_request_metadata: {:?}, master_secret: {:?}, cred_def: {:?}, rev_reg_def: {:?}",
                credential, cred_request_metadata, secret!(&master_secret), cred_def, rev_reg_def);
@@ -121,6 +120,12 @@ impl Prover {
             cred_def.value.revocation.as_ref(),
         )?;
         let credential_values = build_credential_values(&credential.values.0, Some(master_secret))?;
+        let rev_pub_key = match rev_reg_def {
+            Some(RevocationRegistryDefinition::RevocationRegistryDefinitionV1(def)) => {
+                Some(&def.value.public_keys.accum_key)
+            }
+            _ => None,
+        };
 
         CryptoProver::process_credential_signature(
             &mut credential.signature,
@@ -129,9 +134,7 @@ impl Prover {
             &cred_request_metadata.master_secret_blinding_data,
             &credential_pub_key,
             &cred_request_metadata.nonce,
-            rev_reg_def
-                .as_ref()
-                .map(|r_reg_def| &r_reg_def.value.public_keys.accum_key),
+            rev_pub_key,
             credential.rev_reg.as_ref(),
             credential.witness.as_ref(),
         )?;

@@ -75,7 +75,7 @@ fn create_credential_request(
     cred_offer: &PyCredentialOffer,
 ) -> PyResult<PyObject> {
     let prover_did = prover_did.to_string()?.to_string();
-    let master_secret = &master_secret.extract(py)?;
+    let master_secret = &master_secret.extract_json(py)?;
     let master_secret_id = master_secret_id.to_string()?.to_string();
     let (request, metadata) = py
         .allow_threads(move || {

@@ -100,7 +100,13 @@ impl PyObjectProtocol for PyCredentialPrivateKey {
 }
 
 impl PyCredentialPrivateKey {
-    pub fn extract(&self, py: Python) -> PyResult<Services::CredentialPrivateKey> {
+    pub fn embed_json(py: Python, value: &Services::CredentialPrivateKey) -> PyResult<Self> {
+        Ok(Self {
+            inner: Py::new(py, PySafeBuffer::serialize(value)?)?,
+        })
+    }
+
+    pub fn extract_json(&self, py: Python) -> PyResult<Services::CredentialPrivateKey> {
         self.inner.as_ref(py).deserialize()
     }
 }
@@ -161,13 +167,9 @@ pub fn create_credential_definition(
             )
         })
         .map_py_err()?;
-    let key_json = serde_json::to_vec(&private_key).map_py_err()?;
     let args: &[PyObject; 3] = &[
         PyCredentialDefinition { inner: cred_def }.into_py(py),
-        PyCredentialPrivateKey {
-            inner: Py::new(py, PySafeBuffer::new(key_json))?,
-        }
-        .into_py(py),
+        PyCredentialPrivateKey::embed_json(py, &private_key)?.into_py(py),
         PyCredentialKeyCorrectnessProof {
             inner: correctness_proof,
         }
