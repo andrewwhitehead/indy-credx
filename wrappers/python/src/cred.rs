@@ -1,13 +1,13 @@
 use pyo3::class::PyObjectProtocol;
 use pyo3::prelude::*;
-use pyo3::types::{PyString, PyType};
+use pyo3::types::PyString;
 use pyo3::wrap_pyfunction;
 
-use indy_credx::domain::credential::{Credential, CredentialValues};
+use indy_credx::domain::credential::CredentialValues;
 use indy_credx::services as Services;
 use indy_credx::services::issuer::Issuer;
 
-// use crate::buffer::PySafeBuffer;
+use crate::buffer::PySafeBuffer;
 use crate::cred_def::{PyCredentialDefinition, PyCredentialPrivateKey};
 use crate::cred_offer::PyCredentialOffer;
 use crate::cred_request::PyCredentialRequest;
@@ -15,13 +15,17 @@ use crate::error::PyIndyResult;
 
 #[pyclass(name=CredentialDefinition)]
 pub struct PyCredential {
-    // FIXME wrap in a safe buffer
-    pub inner: Credential,
+    pub inner: Py<PySafeBuffer>,
 }
 
 #[pymethods]
 impl PyCredential {
-    #[classmethod]
+    #[getter]
+    pub fn buffer(&self, py: Python) -> PyResult<PyObject> {
+        Ok(self.inner.to_object(py))
+    }
+
+    /*#[classmethod]
     pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<Credential>(&json.to_string()?)
             .map_py_err_msg("Error parsing credential JSON")?;
@@ -30,7 +34,7 @@ impl PyCredential {
 
     pub fn to_json(&self) -> PyResult<String> {
         Ok(serde_json::to_string(&self.inner).map_py_err()?)
-    }
+    }*/
 }
 
 #[pyproto]
@@ -49,7 +53,9 @@ pub fn create_credential(
     cred_offer: &PyCredentialOffer,
     cred_request: &PyCredentialRequest,
     cred_values: &PyString,
-    //revocation config
+    /* ^ FIXME add helper to prepare credential values (w/attribute encoding),
+    pass in safe buffer here */
+    // , revocation config
 ) -> PyResult<PyCredential> {
     let cred_values = cred_values.to_string()?;
     let cred_values =
@@ -67,7 +73,10 @@ pub fn create_credential(
             )
         })
         .map_py_err()?;
-    Ok(PyCredential { inner: credential })
+    let credential_json = serde_json::to_vec(&credential).map_py_err()?;
+    Ok(PyCredential {
+        inner: Py::new(py, PySafeBuffer::new(credential_json))?,
+    })
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
