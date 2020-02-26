@@ -135,17 +135,16 @@ pub struct PyCredentialKeyCorrectnessProof {
 
 #[pymethods]
 impl PyCredentialKeyCorrectnessProof {
-    fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner).map_py_err()?)
+    #[classmethod]
+    pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
+        let inner =
+            serde_json::from_str::<Services::CredentialKeyCorrectnessProof>(&json.to_string()?)
+                .map_py_err_msg(|| "Error parsing credential key correctness proof JSON")?;
+        Ok(Self { inner })
     }
 
-    #[classmethod]
-    fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
-        let inner = serde_json::from_str::<Services::CredentialKeyCorrectnessProof>(
-            &json.to_string_lossy(),
-        )
-        .map_py_err()?;
-        Ok(Self { inner })
+    pub fn to_json(&self) -> PyResult<String> {
+        Ok(serde_json::to_string(&self.inner).map_py_err()?)
     }
 }
 

@@ -10,6 +10,7 @@ use indy_credx::domain::proof::Proof;
 use indy_credx::domain::proof_request::ProofRequest;
 use indy_credx::domain::requested_credential::RequestedCredentials;
 use indy_credx::domain::schema::SchemaId;
+use indy_credx::services::new_nonce;
 use indy_credx::services::prover::Prover;
 
 use crate::buffer::PySafeBuffer;
@@ -79,8 +80,7 @@ impl PyProofRequest {
     }
 
     pub fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner)
-            .map_py_err_msg(|| "Error serializing proof request JSON")?)
+        Ok(serde_json::to_string(&self.inner).map_py_err()?)
     }
 }
 
@@ -109,12 +109,12 @@ impl std::ops::Deref for PyProofRequest {
 pub fn create_proof(
     py: Python,
     proof_req: PyAcceptJsonArg<PyProofRequest>,
-    credentials: HashMap<String, PyAcceptBufferArg<PyCredential>>, // mapping ident -> PyCredential
+    credentials: HashMap<String, PyAcceptBufferArg<PyCredential>>,
     requested_credentials: PyJsonArg<RequestedCredentials>,
     master_secret: PyAcceptBufferArg<PyMasterSecret>,
-    schemas: HashMap<String, PyAcceptJsonArg<PySchema>>, // mapping ident -> PySchema
-    cred_defs: HashMap<String, PyAcceptJsonArg<PyCredentialDefinition>>, // mapping ident -> PyCredentialDefinition
-                                                                         // rev_states: &HashMap<String, HashMap<u64, RevocationState>>,
+    schemas: HashMap<String, PyAcceptJsonArg<PySchema>>,
+    cred_defs: HashMap<String, PyAcceptJsonArg<PyCredentialDefinition>>,
+    // rev_states: &HashMap<String, HashMap<u64, RevocationState>>,
 ) -> PyResult<PyProof> {
     let proof_req = proof_req;
     let master_secret = master_secret.extract_json(py)?;
@@ -149,8 +149,16 @@ pub fn create_proof(
     Ok(PyProof::embed_json(py, &proof)?)
 }
 
+#[pyfunction]
+/// Generates a new nonce
+pub fn generate_nonce() -> PyResult<String> {
+    let nonce = new_nonce().map_py_err()?;
+    Ok(nonce.to_dec().map_py_err()?)
+}
+
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_proof))?;
+    m.add_wrapped(wrap_pyfunction!(generate_nonce))?;
     m.add_class::<PyProof>()?;
     m.add_class::<PyProofRequest>()?;
     Ok(())
