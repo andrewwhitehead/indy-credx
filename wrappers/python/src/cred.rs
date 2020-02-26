@@ -1,6 +1,6 @@
 use pyo3::class::PyObjectProtocol;
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyString, PyType};
 use pyo3::wrap_pyfunction;
 
 use indy_credx::domain::credential::{Credential, CredentialValues};
@@ -13,6 +13,7 @@ use crate::cred_def::{PyCredentialDefinition, PyCredentialPrivateKey};
 use crate::cred_offer::PyCredentialOffer;
 use crate::cred_request::{PyCredentialRequest, PyCredentialRequestMetadata};
 use crate::error::PyIndyResult;
+use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
 
 #[pyclass(name=CredentialDefinition)]
@@ -27,16 +28,14 @@ impl PyCredential {
         Ok(self.inner.to_object(py))
     }
 
-    /*#[classmethod]
-    pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
-        let inner = serde_json::from_str::<Credential>(&json.to_string()?)
-            .map_py_err_msg("Error parsing credential JSON")?;
-        Ok(Self { inner })
+    #[classmethod]
+    pub fn from_json(_cls: &PyType, py: Python, json: &PyString) -> PyResult<Self> {
+        <Self as PyJsonSafeBuffer>::from_json(py, json)
     }
 
-    pub fn to_json(&self) -> PyResult<String> {
-        Ok(serde_json::to_string(&self.inner).map_py_err()?)
-    }*/
+    pub fn to_json(&self, py: Python) -> PyResult<String> {
+        <Self as PyJsonSafeBuffer>::to_json(self, py)
+    }
 }
 
 #[pyproto]
@@ -46,15 +45,16 @@ impl PyObjectProtocol for PyCredential {
     }
 }
 
-impl PyCredential {
-    pub fn embed_json(py: Python, value: &Credential) -> PyResult<Self> {
-        Ok(Self {
-            inner: Py::new(py, PySafeBuffer::serialize(value)?)?,
-        })
+impl From<Py<PySafeBuffer>> for PyCredential {
+    fn from(inner: Py<PySafeBuffer>) -> Self {
+        Self { inner }
     }
+}
 
-    pub fn extract_json(&self, py: Python) -> PyResult<Credential> {
-        self.inner.as_ref(py).deserialize()
+impl PyJsonSafeBuffer for PyCredential {
+    type Inner = Credential;
+    fn buffer(&self, py: Python) -> &PySafeBuffer {
+        self.inner.as_ref(py)
     }
 }
 
@@ -62,13 +62,13 @@ impl PyCredential {
 /// Creates a new credential
 pub fn create_credential(
     py: Python,
-    cred_def: &PyCredentialDefinition,
-    cred_private_key: &PyCredentialPrivateKey,
-    cred_offer: &PyCredentialOffer,
-    cred_request: &PyCredentialRequest,
+    cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
+    cred_private_key: PyAcceptBufferArg<PyCredentialPrivateKey>,
+    cred_offer: PyAcceptJsonArg<PyCredentialOffer>,
+    cred_request: PyAcceptJsonArg<PyCredentialRequest>,
     cred_values: &PyString,
     /* ^ FIXME add helper to prepare credential values (w/attribute encoding),
-    pass in safe buffer here */
+    and pass in safe buffer here */
     // , revocation config
 ) -> PyResult<PyCredential> {
     let cred_values = cred_values.to_string()?;
@@ -87,20 +87,17 @@ pub fn create_credential(
             )
         })
         .map_py_err()?;
-    let credential_json = serde_json::to_vec(&credential).map_py_err()?;
-    Ok(PyCredential {
-        inner: Py::new(py, PySafeBuffer::new(credential_json))?,
-    })
+    Ok(PyCredential::embed_json(py, &credential)?)
 }
 
 #[pyfunction]
 /// Process a received credential
 pub fn process_credential(
     py: Python,
-    cred: &PyCredential,
-    cred_req_meta: &PyCredentialRequestMetadata,
-    master_secret: &PyMasterSecret,
-    cred_def: &PyCredentialDefinition,
+    cred: PyAcceptBufferArg<PyCredential>,
+    cred_req_meta: PyAcceptJsonArg<PyCredentialRequestMetadata>,
+    master_secret: PyAcceptBufferArg<PyMasterSecret>,
+    cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
     // rev_reg_def: &PyRevocationRegistryDefinition,
 ) -> PyResult<PyCredential> {
     let mut credential = cred.extract_json(py)?;

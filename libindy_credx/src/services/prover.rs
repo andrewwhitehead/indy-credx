@@ -20,7 +20,7 @@ use crate::domain::requested_credential::ProvingCredentialKey;
 use crate::domain::requested_credential::RequestedCredentials;
 use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
 use crate::domain::revocation_state::RevocationState;
-use crate::domain::schema::{SchemaId, SchemaV1};
+use crate::domain::schema::{Schema, SchemaId};
 use crate::services::helpers::*;
 use crate::utils::wql::Query;
 
@@ -145,14 +145,13 @@ impl Prover {
     }
 
     pub fn create_proof(
-        &self,
-        credentials: &HashMap<String, Credential>,
         proof_req: &ProofRequest,
+        credentials: &HashMap<String, Credential>,
         requested_credentials: &RequestedCredentials,
         master_secret: &MasterSecret,
-        schemas: &HashMap<SchemaId, SchemaV1>,
-        cred_defs: &HashMap<CredentialDefinitionId, CredentialDefinition>,
-        rev_states: &HashMap<String, HashMap<u64, RevocationState>>,
+        schemas: &HashMap<SchemaId, &Schema>,
+        cred_defs: &HashMap<CredentialDefinitionId, &CredentialDefinition>,
+        rev_states: &HashMap<String, HashMap<u64, &RevocationState>>,
     ) -> IndyResult<Proof> {
         trace!("create_proof >>> credentials: {:?}, proof_req: {:?}, requested_credentials: {:?}, master_secret: {:?}, schemas: {:?}, cred_defs: {:?}, rev_states: {:?}",
                credentials, proof_req, requested_credentials, secret!(&master_secret), schemas, cred_defs, rev_states);
@@ -167,7 +166,7 @@ impl Prover {
             requested_credentials.self_attested_attributes.clone();
 
         let credentials_for_proving =
-            Prover::_prepare_credentials_for_proving(requested_credentials, proof_req_val)?;
+            Self::_prepare_credentials_for_proving(requested_credentials, proof_req_val)?;
         let mut sub_proof_index = 0;
         let non_credential_schema = build_non_credential_schema()?;
 
@@ -181,12 +180,15 @@ impl Prover {
                     ))
                 })?;
 
-            let schema: &SchemaV1 = schemas.get(&credential.schema_id).ok_or_else(|| {
+            let schema = schemas.get(&credential.schema_id).ok_or_else(|| {
                 input_err(format!(
                     "Schema not found by id: {:?}",
                     credential.schema_id
                 ))
             })?;
+            let schema = match schema {
+                Schema::SchemaV1(schema) => schema,
+            };
 
             let cred_def: &CredentialDefinition =
                 cred_defs.get(&credential.cred_def_id).ok_or_else(|| {
@@ -261,7 +263,7 @@ impl Prover {
 
             identifiers.push(identifier);
 
-            self._update_requested_proof(
+            Self::_update_requested_proof(
                 req_attrs_for_cred,
                 req_predicates_for_cred,
                 proof_req_val,
@@ -281,7 +283,7 @@ impl Prover {
             identifiers,
         };
 
-        trace!("create_proof <<< full_proof: {:?}", full_proof);
+        trace!("create_proof <<< full_proof: {:?}", secret!(&full_proof));
 
         Ok(full_proof)
     }
@@ -372,13 +374,12 @@ impl Prover {
     }
 
     pub fn get_credential_values_for_attribute(
-        &self,
         credential_attrs: &HashMap<String, AttributeValues>,
         requested_attr: &str,
     ) -> Option<AttributeValues> {
         trace!(
             "get_credential_values_for_attribute >>> credential_attrs: {:?}, requested_attr: {:?}",
-            credential_attrs,
+            secret!(credential_attrs),
             requested_attr
         );
 
@@ -387,19 +388,21 @@ impl Prover {
             .find(|&(ref key, _)| attr_common_view(key) == attr_common_view(&requested_attr))
             .map(|(_, values)| values.clone());
 
-        trace!("get_credential_values_for_attribute <<< res: {:?}", res);
+        trace!(
+            "get_credential_values_for_attribute <<< res: {:?}",
+            secret!(&res)
+        );
 
         res
     }
 
     pub fn build_credential_tags(
-        &self,
         credential: &Credential,
         catpol: Option<&CredentialAttrTagPolicy>,
     ) -> IndyResult<HashMap<String, String>> {
         trace!(
             "build_credential_tags >>> credential: {:?}, catpol: {:?}",
-            credential,
+            secret!(credential),
             catpol
         );
 
@@ -487,7 +490,7 @@ impl Prover {
             }
         });
 
-        trace!("build_credential_tags <<< res: {:?}", res);
+        trace!("build_credential_tags <<< res: {:?}", secret!(&res));
 
         Ok(res)
     }
@@ -500,7 +503,7 @@ impl Prover {
         trace!(
             "attribute_satisfy_predicate >>> predicate: {:?}, attribute_value: {:?}",
             predicate,
-            attribute_value
+            secret!(attribute_value)
         );
 
         let res = match predicate.p_type {
@@ -547,7 +550,6 @@ impl Prover {
     }
 
     fn _update_requested_proof(
-        &self,
         req_attrs_for_credential: Vec<RequestedAttributeInfo>,
         req_predicates_for_credential: Vec<RequestedPredicateInfo>,
         proof_req: &ProofRequestPayload,
@@ -557,21 +559,21 @@ impl Prover {
     ) -> IndyResult<()> {
         trace!("_update_requested_proof >>> req_attrs_for_credential: {:?}, req_predicates_for_credential: {:?}, proof_req: {:?}, credential: {:?}, \
                sub_proof_index: {:?}, requested_proof: {:?}",
-               req_attrs_for_credential, req_predicates_for_credential, proof_req, credential, sub_proof_index, requested_proof);
+               req_attrs_for_credential, req_predicates_for_credential, proof_req, secret!(&credential), sub_proof_index, secret!(&requested_proof));
 
         for attr_info in req_attrs_for_credential {
             if attr_info.revealed {
                 let attribute = &proof_req.requested_attributes[&attr_info.attr_referent];
 
                 if let Some(name) = &attribute.name {
-                    let attribute_values = self
-                        .get_credential_values_for_attribute(&credential.values.0, &name)
-                        .ok_or_else(|| {
-                            input_err(format!(
-                                "Credential value not found for attribute {:?}",
-                                name
-                            ))
-                        })?;
+                    let attribute_values =
+                        Self::get_credential_values_for_attribute(&credential.values.0, &name)
+                            .ok_or_else(|| {
+                                input_err(format!(
+                                    "Credential value not found for attribute {:?}",
+                                    name
+                                ))
+                            })?;
 
                     requested_proof.revealed_attrs.insert(
                         attr_info.attr_referent.clone(),
@@ -584,14 +586,14 @@ impl Prover {
                 } else if let Some(names) = &attribute.names {
                     let mut value_map: HashMap<String, AttributeValue> = HashMap::new();
                     for name in names {
-                        let attr_value = self
-                            .get_credential_values_for_attribute(&credential.values.0, &name)
-                            .ok_or_else(|| {
-                                input_err(format!(
-                                    "Credential value not found for attribute {:?}",
-                                    name
-                                ))
-                            })?;
+                        let attr_value =
+                            Self::get_credential_values_for_attribute(&credential.values.0, &name)
+                                .ok_or_else(|| {
+                                    input_err(format!(
+                                        "Credential value not found for attribute {:?}",
+                                        name
+                                    ))
+                                })?;
                         value_map.insert(
                             name.clone(),
                             AttributeValue {
@@ -678,7 +680,11 @@ impl Prover {
         restrictions: &Option<Query>,
         extra_query: &Option<&ProofRequestExtraQuery>,
     ) -> IndyResult<Query> {
-        info!("name: {:?}, names: {:?}", name, names);
+        trace!(
+            "extend_proof_request_restrictions >> name: {:?}, names: {:?}",
+            name,
+            names
+        );
 
         let mut queries: Vec<Query> = Vec::new();
 
@@ -704,7 +710,7 @@ impl Prover {
         if let Some(restrictions_) = restrictions.as_ref().and_then(|r| r.clean()) {
             match version {
                 ProofRequestsVersion::V1 => {
-                    queries.push(self.double_restrictions(restrictions_.clone())?)
+                    queries.push(Self::_double_restrictions(restrictions_.clone())?)
                 }
                 ProofRequestsVersion::V2 => queries.push(restrictions_.clone()),
             };
@@ -721,7 +727,7 @@ impl Prover {
         Ok(Query::And(queries))
     }
 
-    fn double_restrictions(&self, operator: Query) -> IndyResult<Query> {
+    fn _double_restrictions(operator: Query) -> IndyResult<Query> {
         Ok(match operator {
             Query::Eq(tag_name, tag_value) => {
                 if Credential::QUALIFIABLE_TAGS.contains(&tag_name.as_str()) {
@@ -756,18 +762,18 @@ impl Prover {
             Query::And(operators) => Query::And(
                 operators
                     .into_iter()
-                    .map(|op| self.double_restrictions(op))
+                    .map(|op| Self::_double_restrictions(op))
                     .collect::<IndyResult<Vec<Query>>>()?,
             ),
             Query::Or(operators) => Query::Or(
                 operators
                     .into_iter()
-                    .map(|op| self.double_restrictions(op))
+                    .map(|op| Self::_double_restrictions(op))
                     .collect::<IndyResult<Vec<Query>>>()?,
             ),
-            Query::Not(operator) => {
-                Query::Not(::std::boxed::Box::new(self.double_restrictions(*operator)?))
-            }
+            Query::Not(operator) => Query::Not(::std::boxed::Box::new(Self::_double_restrictions(
+                *operator,
+            )?)),
             _ => return Err(input_err("unsupported operator")),
         })
     }
@@ -838,8 +844,7 @@ mod tests {
 
         #[test]
         fn build_credential_tags_works() {
-            let ps = Prover::new();
-            let tags = ps.build_credential_tags(&_credential(), None).unwrap();
+            let tags = Prover::build_credential_tags(&_credential(), None).unwrap();
 
             let expected_tags: HashMap<String, String> = hashmap!(
                "schema_id".to_string() => SCHEMA_ID.to_string(),
@@ -860,11 +865,9 @@ mod tests {
 
         #[test]
         fn build_credential_tags_works_for_catpol() {
-            let ps = Prover::new();
             let catpol = CredentialAttrTagPolicy::from(vec![String::from("name")]);
-            let tags = ps
-                .build_credential_tags(&_credential(), Some(catpol).as_ref())
-                .unwrap();
+            let tags =
+                Prover::build_credential_tags(&_credential(), Some(catpol).as_ref()).unwrap();
 
             let expected_tags: HashMap<String, String> = hashmap!(
                "schema_id".to_string() => SCHEMA_ID.to_string(),
@@ -883,10 +886,9 @@ mod tests {
 
         #[test]
         fn build_credential_tags_works_for_rev_reg_id() {
-            let ps = Prover::new();
             let mut credential = _credential();
             credential.rev_reg_id = Some(RevocationRegistryId(REV_REG_ID.to_string()));
-            let tags = ps.build_credential_tags(&credential, None).unwrap();
+            let tags = Prover::build_credential_tags(&credential, None).unwrap();
 
             let expected_tags: HashMap<String, String> = hashmap!(
                "schema_id".to_string() => SCHEMA_ID.to_string(),
@@ -907,8 +909,6 @@ mod tests {
 
         #[test]
         fn build_credential_tags_works_for_fully_qualified_ids() {
-            let ps = Prover::new();
-
             let schema_id = "schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0";
             let issuer_did = "did:sov:NcYxiDXkpYi6ov5FcYDi1e";
             let cred_def_id = "creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag";
@@ -919,7 +919,7 @@ mod tests {
             credential.cred_def_id = CredentialDefinitionId(cred_def_id.to_string());
             credential.rev_reg_id = Some(RevocationRegistryId(rev_reg_id.to_string()));
 
-            let tags = ps.build_credential_tags(&credential, None).unwrap();
+            let tags = Prover::build_credential_tags(&credential, None).unwrap();
 
             let expected_tags: HashMap<String, String> = hashmap!(
                "schema_id".to_string() => schema_id.to_string(),
@@ -1147,68 +1147,49 @@ mod tests {
 
         #[test]
         fn get_credential_values_for_attribute_works() {
-            let ps = Prover::new();
-
-            let res = ps
-                .get_credential_values_for_attribute(&_cred_values(), "name")
-                .unwrap();
+            let res = Prover::get_credential_values_for_attribute(&_cred_values(), "name").unwrap();
             assert_eq!(_attr_values(), res);
         }
 
         #[test]
         fn get_credential_values_for_attribute_works_for_requested_attr_different_case() {
-            let ps = Prover::new();
-
-            let res = ps
-                .get_credential_values_for_attribute(&_cred_values(), "NAme")
-                .unwrap();
+            let res = Prover::get_credential_values_for_attribute(&_cred_values(), "NAme").unwrap();
             assert_eq!(_attr_values(), res);
         }
 
         #[test]
         fn get_credential_values_for_attribute_works_for_requested_attr_contains_spaces() {
-            let ps = Prover::new();
-
-            let res = ps
-                .get_credential_values_for_attribute(&_cred_values(), "   na me  ")
-                .unwrap();
+            let res =
+                Prover::get_credential_values_for_attribute(&_cred_values(), "   na me  ").unwrap();
             assert_eq!(_attr_values(), res);
         }
 
         #[test]
         fn get_credential_values_for_attribute_works_for_cred_values_different_case() {
-            let ps = Prover::new();
-
             let cred_values = hashmap!("NAME".to_string() => _attr_values());
 
-            let res = ps
-                .get_credential_values_for_attribute(&cred_values, "name")
-                .unwrap();
+            let res = Prover::get_credential_values_for_attribute(&cred_values, "name").unwrap();
             assert_eq!(_attr_values(), res);
         }
 
         #[test]
         fn get_credential_values_for_attribute_works_for_cred_values_contains_spaces() {
-            let ps = Prover::new();
-
             let cred_values = hashmap!("    name    ".to_string() => _attr_values());
 
-            let res = ps
-                .get_credential_values_for_attribute(&cred_values, "name")
-                .unwrap();
+            let res = Prover::get_credential_values_for_attribute(&cred_values, "name").unwrap();
             assert_eq!(_attr_values(), res);
         }
 
         #[test]
         fn get_credential_values_for_attribute_works_for_cred_values_and_requested_attr_contains_spaces(
         ) {
-            let ps = Prover::new();
-
             let cred_values = hashmap!("    name    ".to_string() => _attr_values());
 
-            let res = ps
-                .get_credential_values_for_attribute(&cred_values, "            name            ")
-                .unwrap();
+            let res = Prover::get_credential_values_for_attribute(
+                &cred_values,
+                "            name            ",
+            )
+            .unwrap();
             assert_eq!(_attr_values(), res);
         }
     }
@@ -1222,10 +1203,8 @@ mod tests {
 
         #[test]
         fn extend_operator_works_for_qualifiable_tag() {
-            let ps = Prover::new();
-
             let query = Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string());
-            let query = ps.double_restrictions(query).unwrap();
+            let query = Prover::_double_restrictions(query).unwrap();
 
             let expected_query = Query::Or(vec![
                 Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
@@ -1240,10 +1219,8 @@ mod tests {
 
         #[test]
         fn extend_operator_works_for_not_qualifiable_tag() {
-            let ps = Prover::new();
-
             let query = Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string());
-            let query = ps.double_restrictions(query).unwrap();
+            let query = Prover::_double_restrictions(query).unwrap();
 
             let expected_query = Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string());
 
@@ -1252,13 +1229,11 @@ mod tests {
 
         #[test]
         fn extend_operator_works_for_qualifiable_tag_for_combination() {
-            let ps = Prover::new();
-
             let query = Query::And(vec![
                 Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
                 Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
             ]);
-            let query = ps.double_restrictions(query).unwrap();
+            let query = Prover::_double_restrictions(query).unwrap();
 
             let expected_query = Query::And(vec![
                 Query::Or(vec![

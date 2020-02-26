@@ -8,8 +8,11 @@ use indy_credx::services::issuer::Issuer;
 
 use crate::cred_def::{PyCredentialDefinition, PyCredentialKeyCorrectnessProof};
 use crate::error::PyIndyResult;
+use crate::helpers::PyAcceptJsonArg;
 
 #[pyclass(name=CredentialOffer)]
+#[serde(transparent)]
+#[derive(Serialize, Deserialize)]
 pub struct PyCredentialOffer {
     pub inner: CredentialOffer,
 }
@@ -19,7 +22,7 @@ impl PyCredentialOffer {
     #[classmethod]
     pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<CredentialOffer>(&json.to_string()?)
-            .map_py_err_msg("Error parsing credential offer JSON")?;
+            .map_py_err_msg(|| "Error parsing credential offer JSON")?;
         Ok(Self { inner })
     }
 
@@ -35,15 +38,28 @@ impl PyObjectProtocol for PyCredentialOffer {
     }
 }
 
+impl From<CredentialOffer> for PyCredentialOffer {
+    fn from(value: CredentialOffer) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl std::ops::Deref for PyCredentialOffer {
+    type Target = CredentialOffer;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[pyfunction]
 /// Creates a new credential offer
 fn create_credential_offer(
-    cred_def: &PyCredentialDefinition,
-    correctness_proof: &PyCredentialKeyCorrectnessProof,
+    cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
+    correctness_proof: PyAcceptJsonArg<PyCredentialKeyCorrectnessProof>,
 ) -> PyResult<PyCredentialOffer> {
     let offer =
         Issuer::new_credential_offer(&cred_def.inner, &correctness_proof.inner).map_py_err()?;
-    Ok(PyCredentialOffer { inner: offer })
+    Ok(PyCredentialOffer::from(offer))
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {

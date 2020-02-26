@@ -10,9 +10,12 @@ use indy_credx::services::prover::Prover;
 use crate::cred_def::PyCredentialDefinition;
 use crate::cred_offer::PyCredentialOffer;
 use crate::error::PyIndyResult;
+use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
 
 #[pyclass(name=CredentialRequest)]
+#[serde(transparent)]
+#[derive(Serialize, Deserialize)]
 pub struct PyCredentialRequest {
     pub inner: CredentialRequest,
 }
@@ -22,7 +25,7 @@ impl PyCredentialRequest {
     #[classmethod]
     pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<CredentialRequest>(&json.to_string()?)
-            .map_py_err_msg("Error parsing credential request JSON")?;
+            .map_py_err_msg(|| "Error parsing credential request JSON")?;
         Ok(Self { inner })
     }
 
@@ -38,7 +41,22 @@ impl PyObjectProtocol for PyCredentialRequest {
     }
 }
 
+impl From<CredentialRequest> for PyCredentialRequest {
+    fn from(value: CredentialRequest) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl std::ops::Deref for PyCredentialRequest {
+    type Target = CredentialRequest;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[pyclass(name=CredentialRequest)]
+#[serde(transparent)]
+#[derive(Serialize, Deserialize)]
 pub struct PyCredentialRequestMetadata {
     pub inner: CredentialRequestMetadata,
 }
@@ -48,7 +66,7 @@ impl PyCredentialRequestMetadata {
     #[classmethod]
     pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<CredentialRequestMetadata>(&json.to_string()?)
-            .map_py_err_msg("Error parsing credential request metadata JSON")?;
+            .map_py_err_msg(|| "Error parsing credential request metadata JSON")?;
         Ok(Self { inner })
     }
 
@@ -64,19 +82,33 @@ impl PyObjectProtocol for PyCredentialRequestMetadata {
     }
 }
 
+impl From<CredentialRequestMetadata> for PyCredentialRequestMetadata {
+    fn from(value: CredentialRequestMetadata) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl std::ops::Deref for PyCredentialRequestMetadata {
+    type Target = CredentialRequestMetadata;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[pyfunction]
 /// Creates a new credential request
 fn create_credential_request(
     py: Python,
     prover_did: &PyString,
-    cred_def: &PyCredentialDefinition,
-    master_secret: &PyMasterSecret,
+    cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
+    master_secret: PyAcceptBufferArg<PyMasterSecret>,
     master_secret_id: &PyString,
-    cred_offer: &PyCredentialOffer,
+    cred_offer: PyAcceptJsonArg<PyCredentialOffer>,
 ) -> PyResult<PyObject> {
     let prover_did = prover_did.to_string()?.to_string();
     let master_secret = &master_secret.extract_json(py)?;
     let master_secret_id = master_secret_id.to_string()?.to_string();
+
     let (request, metadata) = py
         .allow_threads(move || {
             Prover::new_credential_request(
@@ -89,8 +121,8 @@ fn create_credential_request(
         })
         .map_py_err()?;
     let args: &[PyObject; 2] = &[
-        PyCredentialRequest { inner: request }.into_py(py),
-        PyCredentialRequestMetadata { inner: metadata }.into_py(py),
+        PyCredentialRequest::from(request).into_py(py),
+        PyCredentialRequestMetadata::from(metadata).into_py(py),
     ];
     Ok(PyTuple::new(py, args).to_object(py))
 }

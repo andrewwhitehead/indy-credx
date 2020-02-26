@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate serde_derive;
 
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
@@ -10,32 +12,10 @@ mod cred_def;
 mod cred_offer;
 mod cred_request;
 mod error;
+mod helpers;
 mod master_secret;
+mod proof;
 mod schema;
-
-/*#[pyfunction]
-/// Creates a new credential
-fn create_credential(
-    py: Python,
-    cred_def: &CredentialDefinitionData,
-
-        &self,
-        cred_def: &CredentialDefinition,
-        cred_priv_key: &CredentialPrivateKey,
-        cred_issuance_blinding_nonce: &Nonce,
-        cred_request: &CredentialRequest,
-        cred_values: &CredentialValues,
-        rev_idx: Option<u32>,
-        rev_reg_def: Option<&RevocationRegistryDefinitionV1>,
-        rev_reg: Option<&mut RevocationRegistry>,
-        rev_key_priv: Option<&RevocationKeyPrivate>,
-        rev_tails_accessor: Option<&RTA>,
-    ) -> IndyResult<(
-        CredentialSignature,
-        SignatureCorrectnessProof,
-        Option<RevocationRegistryDelta>,
-
-)*/
 
 #[pyfunction]
 /// Creates a new test buffer
@@ -60,6 +40,7 @@ fn indy_credx(py: Python, m: &PyModule) -> PyResult<()> {
     cred_offer::register(py, m)?;
     cred_request::register(py, m)?;
     master_secret::register(py, m)?;
+    proof::register(py, m)?;
     schema::register(py, m)?;
 
     m.add_class::<buffer::PySafeBuffer>()?;

@@ -8,9 +8,10 @@ create_exception!(indy_credx, IndyError, Exception);
 
 pub trait PyIndyResult<T> {
     fn map_py_err(self) -> PyResult<T>;
-    fn map_py_err_msg<D>(self, msg: D) -> PyResult<T>
+    fn map_py_err_msg<F, M>(self, msgfn: F) -> PyResult<T>
     where
-        D: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static;
+        F: FnOnce() -> M,
+        M: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static;
 }
 
 impl<T, E> PyIndyResult<T> for Result<T, E>
@@ -24,14 +25,15 @@ where
         }
     }
 
-    fn map_py_err_msg<D>(self, msg: D) -> PyResult<T>
+    fn map_py_err_msg<F, M>(self, msgfn: F) -> PyResult<T>
     where
-        D: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
+        F: FnOnce() -> M,
+        M: std::fmt::Display + std::fmt::Debug + Send + Sync + 'static,
     {
         match self {
             Ok(r) => Ok(r),
             Err(err) => Err(PyErr::new::<IndyError, _>(
-                err.into().extend(msg).to_string(),
+                err.into().extend(msgfn()).to_string(),
             )),
         }
     }

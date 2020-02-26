@@ -14,6 +14,8 @@ use indy_credx::services::issuer::Issuer;
 use crate::error::PyIndyResult;
 
 #[pyclass(name=Schema)]
+#[serde(transparent)]
+#[derive(Serialize, Deserialize)]
 pub struct PySchema {
     pub inner: Schema,
 }
@@ -68,7 +70,7 @@ impl PySchema {
     #[classmethod]
     pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<Schema>(&json.to_string()?)
-            .map_py_err_msg("Error parsing schema JSON")?;
+            .map_py_err_msg(|| "Error parsing schema JSON")?;
         Ok(Self { inner })
     }
 
@@ -81,6 +83,19 @@ impl PySchema {
 impl PyObjectProtocol for PySchema {
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!("Schema({})", self.schema_id()?))
+    }
+}
+
+impl From<Schema> for PySchema {
+    fn from(value: Schema) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl std::ops::Deref for PySchema {
+    type Target = Schema;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
@@ -109,7 +124,7 @@ fn create_schema(
         attr_names,
     )
     .map_py_err()?;
-    Ok(PySchema { inner: schema })
+    Ok(PySchema::from(schema))
 }
 
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {

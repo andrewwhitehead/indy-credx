@@ -10,7 +10,7 @@ use pyo3::{AsPyPointer, PyClassShell};
 
 use zeroize::Zeroize;
 
-use crate::error::PyIndyResult;
+use indy_credx::common::error::IndyResult;
 
 #[pyclass(name=SafeBuffer)]
 pub struct PySafeBuffer {
@@ -91,20 +91,32 @@ impl PySafeBuffer {
         Self { inner: buf }
     }
 
-    pub fn serialize<T>(value: &T) -> PyResult<Self>
+    pub fn serialize<T>(value: &T) -> IndyResult<Self>
     where
         T: serde::Serialize,
     {
-        let json = serde_json::to_vec(value).map_py_err()?;
+        let json = serde_json::to_vec(value)?;
         Ok(Self::new(json))
     }
 
-    pub fn deserialize<T>(&self) -> PyResult<T>
+    pub fn deserialize<T>(&self) -> IndyResult<T>
     where
         T: serde::de::DeserializeOwned,
     {
-        let result = serde_json::from_slice::<T>(self.inner.as_slice()).map_py_err()?;
+        let result = serde_json::from_slice::<T>(self.inner.as_slice())?;
         Ok(result)
+    }
+
+    pub fn from_json<T>(json: &str) -> IndyResult<Self>
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        let value = serde_json::from_str::<T>(json)?;
+        Self::serialize(&value)
+    }
+
+    pub fn to_json<T>(&self) -> IndyResult<String> {
+        Ok(String::from_utf8_lossy(&self.inner).to_string())
     }
 }
 

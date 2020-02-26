@@ -1,12 +1,14 @@
 use pyo3::class::PyObjectProtocol;
 use pyo3::prelude::*;
+use pyo3::types::{PyString, PyType};
 use pyo3::wrap_pyfunction;
 
-use indy_credx::services as Services;
 use indy_credx::services::prover::Prover;
+use indy_credx::services::MasterSecret;
 
 use crate::buffer::PySafeBuffer;
 use crate::error::PyIndyResult;
+use crate::helpers::PyJsonSafeBuffer;
 
 #[pyclass(name=MasterSecret)]
 pub struct PyMasterSecret {
@@ -20,27 +22,13 @@ impl PyMasterSecret {
         Ok(self.inner.to_object(py))
     }
 
-    // #[classmethod]
-    // pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
-    //     let inner = serde_json::from_str::<CredentialDefinition>(&json.to_string()?)
-    //         .map_py_err_msg("Error parsing credential definition JSON")?;
-    //     Ok(Self { inner })
-    // }
-
-    // pub fn to_json(&self) -> PyResult<String> {
-    //     Ok(serde_json::to_string(&self.inner).map_py_err()?)
-    // }
-}
-
-impl PyMasterSecret {
-    pub fn embed_json(py: Python, value: &Services::MasterSecret) -> PyResult<Self> {
-        Ok(Self {
-            inner: Py::new(py, PySafeBuffer::serialize(value)?)?,
-        })
+    #[classmethod]
+    pub fn from_json(_cls: &PyType, py: Python, json: &PyString) -> PyResult<Self> {
+        <Self as PyJsonSafeBuffer>::from_json(py, json)
     }
 
-    pub fn extract_json(&self, py: Python) -> PyResult<Services::MasterSecret> {
-        self.inner.as_ref(py).deserialize()
+    pub fn to_json(&self, py: Python) -> PyResult<String> {
+        <Self as PyJsonSafeBuffer>::to_json(self, py)
     }
 }
 
@@ -48,6 +36,19 @@ impl PyMasterSecret {
 impl PyObjectProtocol for PyMasterSecret {
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!("MasterSecret({:p})", self))
+    }
+}
+
+impl From<Py<PySafeBuffer>> for PyMasterSecret {
+    fn from(inner: Py<PySafeBuffer>) -> Self {
+        Self { inner }
+    }
+}
+
+impl PyJsonSafeBuffer for PyMasterSecret {
+    type Inner = MasterSecret;
+    fn buffer(&self, py: Python) -> &PySafeBuffer {
+        self.inner.as_ref(py)
     }
 }
 

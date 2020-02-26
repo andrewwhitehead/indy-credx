@@ -10,9 +10,12 @@ use indy_credx::services::issuer::Issuer;
 
 use crate::buffer::PySafeBuffer;
 use crate::error::PyIndyResult;
+use crate::helpers::{PyAcceptJsonArg, PyJsonSafeBuffer};
 use crate::schema::PySchema;
 
 #[pyclass(name=CredentialDefinition)]
+#[serde(transparent)]
+#[derive(Serialize, Deserialize)]
 pub struct PyCredentialDefinition {
     pub inner: CredentialDefinition,
 }
@@ -52,7 +55,7 @@ impl PyCredentialDefinition {
     #[classmethod]
     pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
         let inner = serde_json::from_str::<CredentialDefinition>(&json.to_string()?)
-            .map_py_err_msg("Error parsing credential definition JSON")?;
+            .map_py_err_msg(|| "Error parsing credential definition JSON")?;
         Ok(Self { inner })
     }
 
@@ -68,6 +71,19 @@ impl PyObjectProtocol for PyCredentialDefinition {
     }
 }
 
+impl From<CredentialDefinition> for PyCredentialDefinition {
+    fn from(value: CredentialDefinition) -> Self {
+        Self { inner: value }
+    }
+}
+
+impl std::ops::Deref for PyCredentialDefinition {
+    type Target = CredentialDefinition;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
 #[pyclass(name=CredentialPrivateKey)]
 pub struct PyCredentialPrivateKey {
     inner: Py<PySafeBuffer>,
@@ -80,16 +96,14 @@ impl PyCredentialPrivateKey {
         Ok(self.inner.to_object(py))
     }
 
-    // #[classmethod]
-    // pub fn from_json(_cls: &PyType, json: &PyString) -> PyResult<Self> {
-    //     let inner = serde_json::from_str::<CredentialDefinition>(&json.to_string()?)
-    //         .map_py_err_msg("Error parsing credential definition JSON")?;
-    //     Ok(Self { inner })
-    // }
+    #[classmethod]
+    pub fn from_json(_cls: &PyType, py: Python, json: &PyString) -> PyResult<Self> {
+        <Self as PyJsonSafeBuffer>::from_json(py, json)
+    }
 
-    // pub fn to_json(&self) -> PyResult<String> {
-    //     Ok(serde_json::to_string(&self.inner).map_py_err()?)
-    // }
+    pub fn to_json(&self, py: Python) -> PyResult<String> {
+        <Self as PyJsonSafeBuffer>::to_json(self, py)
+    }
 }
 
 #[pyproto]
@@ -99,19 +113,22 @@ impl PyObjectProtocol for PyCredentialPrivateKey {
     }
 }
 
-impl PyCredentialPrivateKey {
-    pub fn embed_json(py: Python, value: &Services::CredentialPrivateKey) -> PyResult<Self> {
-        Ok(Self {
-            inner: Py::new(py, PySafeBuffer::serialize(value)?)?,
-        })
+impl From<Py<PySafeBuffer>> for PyCredentialPrivateKey {
+    fn from(inner: Py<PySafeBuffer>) -> Self {
+        Self { inner }
     }
+}
 
-    pub fn extract_json(&self, py: Python) -> PyResult<Services::CredentialPrivateKey> {
-        self.inner.as_ref(py).deserialize()
+impl PyJsonSafeBuffer for PyCredentialPrivateKey {
+    type Inner = Services::CredentialPrivateKey;
+    fn buffer(&self, py: Python) -> &PySafeBuffer {
+        self.inner.as_ref(py)
     }
 }
 
 #[pyclass(name=CredentialKeyCorrectnessProof)]
+#[serde(transparent)]
+#[derive(Serialize, Deserialize)]
 pub struct PyCredentialKeyCorrectnessProof {
     pub inner: Services::CredentialKeyCorrectnessProof,
 }
@@ -144,7 +161,7 @@ impl PyObjectProtocol for PyCredentialKeyCorrectnessProof {
 pub fn create_credential_definition(
     py: Python,
     origin_did: &PyString,
-    schema: &PySchema,
+    schema: PyAcceptJsonArg<PySchema>,
     tag: Option<&PyString>,
 ) -> PyResult<PyObject> {
     let origin_did = origin_did.to_string()?.to_string();
