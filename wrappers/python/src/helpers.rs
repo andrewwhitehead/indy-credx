@@ -152,17 +152,17 @@ pub trait PyJsonSafeBuffer: From<Py<PySafeBuffer>> + PyTypeInfo {
             .map_py_err_msg(|| format!("Error parsing {} as JSON", Self::NAME))
     }
 
-    fn to_json(&self, py: Python) -> PyResult<String> {
+    fn to_json_insecure(&self, py: Python) -> PyResult<String> {
         Ok(self
             .buffer(py)
-            .to_json::<Self::Inner>()
+            .to_json_insecure::<Self::Inner>()
             .map_py_err_msg(|| format!("Error serializing {} as JSON", Self::NAME))?)
     }
 
-    fn from_json(py: Python, json: &PyString) -> PyResult<Self> {
+    fn from_json_insecure(py: Python, json: &PyString) -> PyResult<Self> {
         let inner = Py::new(
             py,
-            PySafeBuffer::from_json::<Self::Inner>(&json.to_string()?)
+            PySafeBuffer::from_json_insecure::<Self::Inner>(&json.to_string()?)
                 .map_py_err_msg(|| format!("Error parsing {} as JSON", Self::NAME))?,
         )?;
         Ok(Self::from(inner))

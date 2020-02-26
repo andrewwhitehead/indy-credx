@@ -24,11 +24,11 @@ impl PyMasterSecret {
 
     #[classmethod]
     pub fn from_json(_cls: &PyType, py: Python, json: &PyString) -> PyResult<Self> {
-        <Self as PyJsonSafeBuffer>::from_json(py, json)
+        <Self as PyJsonSafeBuffer>::from_json_insecure(py, json)
     }
 
     pub fn to_json(&self, py: Python) -> PyResult<String> {
-        <Self as PyJsonSafeBuffer>::to_json(self, py)
+        <Self as PyJsonSafeBuffer>::to_json_insecure(self, py)
     }
 }
 

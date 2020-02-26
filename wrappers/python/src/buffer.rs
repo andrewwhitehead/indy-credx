@@ -27,20 +27,16 @@ impl PyBufferProtocol for PySafeBuffer {
         if view.is_null() {
             return Err(BufferError::py_err("View is null"));
         }
-
-        unsafe {
-            debug!("create memory view {:p}", &slf.inner);
-            (*view).obj = slf.as_ptr();
-            Py_INCREF((*view).obj);
-        }
-
         if (flags & PyBUF_WRITABLE) == PyBUF_WRITABLE {
             return Err(BufferError::py_err("Object is not writable"));
         }
 
         let bytes = &slf.inner;
-
         unsafe {
+            debug!("create memory view {:p}", &bytes);
+            (*view).obj = slf.as_ptr();
+            Py_INCREF((*view).obj);
+
             (*view).buf = bytes.as_ptr() as *mut c_void;
             (*view).len = bytes.len() as isize;
             (*view).readonly = 1;
@@ -66,7 +62,6 @@ impl PyBufferProtocol for PySafeBuffer {
             (*view).suboffsets = ptr::null_mut();
             (*view).internal = ptr::null_mut();
         }
-
         Ok(())
     }
 
@@ -75,6 +70,7 @@ impl PyBufferProtocol for PySafeBuffer {
             return Err(BufferError::py_err("View is null"));
         }
         debug!("release memory view {:p}", &slf.inner);
+        // Python will have already decreased the reference count of view.obj
         Ok(())
     }
 }
@@ -107,7 +103,7 @@ impl PySafeBuffer {
         Ok(result)
     }
 
-    pub fn from_json<T>(json: &str) -> IndyResult<Self>
+    pub fn from_json_insecure<T>(json: &str) -> IndyResult<Self>
     where
         T: serde::Serialize + serde::de::DeserializeOwned,
     {
@@ -115,7 +111,7 @@ impl PySafeBuffer {
         Self::serialize(&value)
     }
 
-    pub fn to_json<T>(&self) -> IndyResult<String> {
+    pub fn to_json_insecure<T>(&self) -> IndyResult<String> {
         Ok(String::from_utf8_lossy(&self.inner).to_string())
     }
 }
