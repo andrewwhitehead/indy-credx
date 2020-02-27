@@ -129,7 +129,6 @@ impl Issuer {
     }
 
     pub fn new_revocation_registry<TW>(
-        &self,
         origin_did: &DidValue,
         cred_def: &CredentialDefinition,
         tag: &str,
@@ -255,7 +254,7 @@ impl Issuer {
     {
         trace!("new_credential >>> cred_def: {:?}, cred_priv_key: {:?}, cred_offer.nonce: {:?}, cred_request: {:?},\
                cred_values: {:?}, revocation_config: {:?}",
-               cred_def, secret!(&cred_priv_key), secret!(&cred_offer.nonce), secret!(&cred_request), secret!(&cred_values), revocation_config,
+               cred_def, secret!(&cred_priv_key), &cred_offer.nonce, &cred_request, secret!(&cred_values), revocation_config,
                );
 
         let cred_pub_key = match cred_def {
@@ -410,7 +409,7 @@ pub struct TailsFileWriter {
 }
 
 impl TailsFileWriter {
-    fn new(root_path: Option<String>) -> Self {
+    pub fn new(root_path: Option<String>) -> Self {
         Self {
             root_path: root_path
                 .map(PathBuf::from)

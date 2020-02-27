@@ -4,7 +4,7 @@ use super::credential_definition::CredentialDefinitionId;
 use super::DELIMITER;
 
 use named_type::NamedType;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
@@ -102,33 +102,6 @@ impl RevocationRegistryDefinition {
             }
         }
     }
-}
-
-impl From<RevocationRegistryDefinition> for RevocationRegistryDefinitionV1 {
-    fn from(rev_reg_def: RevocationRegistryDefinition) -> Self {
-        match rev_reg_def {
-            RevocationRegistryDefinition::RevocationRegistryDefinitionV1(rev_reg_def) => {
-                rev_reg_def
-            }
-        }
-    }
-}
-
-pub type RevocationRegistryDefinitions =
-    HashMap<RevocationRegistryId, RevocationRegistryDefinition>;
-
-pub fn rev_reg_defs_map_to_rev_reg_defs_v1_map(
-    rev_reg_defs: RevocationRegistryDefinitions,
-) -> HashMap<RevocationRegistryId, RevocationRegistryDefinitionV1> {
-    rev_reg_defs
-        .into_iter()
-        .map(|(rev_reg_id, rev_reg_def)| {
-            (
-                rev_reg_id,
-                RevocationRegistryDefinitionV1::from(rev_reg_def),
-            )
-        })
-        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize, NamedType)]

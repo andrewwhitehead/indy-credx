@@ -28,8 +28,9 @@ impl SignatureType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialDefinitionConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature_type: Option<SignatureType>,
     pub support_revocation: bool,
 }
@@ -39,6 +40,15 @@ impl CredentialDefinitionConfig {
         Self {
             signature_type,
             support_revocation,
+        }
+    }
+}
+
+impl Default for CredentialDefinitionConfig {
+    fn default() -> Self {
+        Self {
+            signature_type: None,
+            support_revocation: false,
         }
     }
 }

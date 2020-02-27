@@ -123,7 +123,7 @@ fn create_schema(
         &*schema_version,
         attr_names,
     )
-    .map_py_err()?;
+    .map_py_err_msg(|| "Error creating schema")?;
     Ok(PySchema::from(schema))
 }
 

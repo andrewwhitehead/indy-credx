@@ -10,7 +10,7 @@ use indy_credx::services::issuer::Issuer;
 
 use crate::buffer::PySafeBuffer;
 use crate::error::PyIndyResult;
-use crate::helpers::{PyAcceptJsonArg, PyJsonSafeBuffer};
+use crate::helpers::{PyAcceptJsonArg, PyJsonArg, PyJsonSafeBuffer};
 use crate::schema::PySchema;
 
 #[pyclass(name=CredentialDefinition)]
@@ -162,17 +162,17 @@ pub fn create_credential_definition(
     origin_did: &PyString,
     schema: PyAcceptJsonArg<PySchema>,
     tag: Option<&PyString>,
+    config: Option<PyJsonArg<CredentialDefinitionConfig>>,
 ) -> PyResult<PyObject> {
     let origin_did = origin_did.to_string()?.to_string();
     let tag = if let Some(tag) = tag {
         String::clone(&tag.to_string()?.to_string())
     } else {
-        "default".to_string()
+        "default".to_string() // FIXME use constant
     };
-    let config = CredentialDefinitionConfig {
-        signature_type: None,
-        support_revocation: false,
-    };
+    let config = config
+        .map(|cfg| cfg.clone())
+        .unwrap_or_else(|| CredentialDefinitionConfig::default());
     let (cred_def, private_key, correctness_proof) = py
         .allow_threads(move || {
             Issuer::new_credential_definition(

@@ -13,6 +13,7 @@ from indy_credx import (  # noqa: E402
     create_credential_offer,
     create_credential_request,
     create_master_secret,
+    create_revocation_registry,
     process_credential,
     create_proof,
     generate_nonce,
@@ -22,11 +23,17 @@ origin_did = "55GkHamhTU1ZbTbV2ab9DE"
 schema = create_schema(origin_did, "schema_name", "1.0", ["one", "two"])
 schema.seq_no = 15
 
-
-(cred_def, cred_def_pk, cred_def_cp) = create_credential_definition(origin_did, schema)
+(cred_def, cred_def_pk, cred_def_cp) = create_credential_definition(
+    origin_did, schema, None, json.dumps({"support_revocation": True})
+)
 print("cred def", cred_def)
 print("cred def private key", cred_def_pk)
 print("cred def correctness proof", cred_def_cp)
+
+(rev_reg_def, rev_reg, rev_key) = create_revocation_registry(
+    origin_did, cred_def, None, 100, None, None
+)
+print(rev_reg_def, rev_reg.to_json(), rev_key.to_json())
 
 cred_offer = create_credential_offer(cred_def, cred_def_cp)
 print(cred_offer)

@@ -15,6 +15,7 @@ mod error;
 mod helpers;
 mod master_secret;
 mod proof;
+mod rev_reg;
 mod schema;
 
 #[pyfunction]
@@ -41,6 +42,7 @@ fn indy_credx(py: Python, m: &PyModule) -> PyResult<()> {
     cred_request::register(py, m)?;
     master_secret::register(py, m)?;
     proof::register(py, m)?;
+    rev_reg::register(py, m)?;
     schema::register(py, m)?;
 
     m.add_class::<buffer::PySafeBuffer>()?;
