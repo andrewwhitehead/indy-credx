@@ -33,7 +33,7 @@ fn set_default_logger() {
 
 /// This module is a python module implemented in Rust.
 #[pymodule]
-fn indy_credx(py: Python, m: &PyModule) -> PyResult<()> {
+fn indy_credx_py(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_test_buffer))?;
 
     cred::register(py, m)?;

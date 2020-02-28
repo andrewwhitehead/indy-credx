@@ -6,7 +6,7 @@ from time import perf_counter
 
 os.environ["RUST_LOG"] = "debug"
 
-from indy_credx import (  # noqa: E402
+from indy_credx_py import (  # noqa: E402
     create_credential,
     create_schema,
     create_credential_definition,
