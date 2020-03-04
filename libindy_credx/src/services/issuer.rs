@@ -167,7 +167,7 @@ impl Issuer {
         };
 
         let rev_reg_type = rev_reg_type.unwrap_or(RegistryType::CL_ACCUM);
-        let issuance_type = issuance_type.unwrap_or(IssuanceType::ISSUANCE_ON_DEMAND);
+        let issuance_type = issuance_type.unwrap_or(IssuanceType::ISSUANCE_BY_DEFAULT);
 
         // FIXME
         // need a way to generate the ID ahead of time, so the caller can make sure

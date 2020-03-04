@@ -3,9 +3,13 @@ use pyo3::prelude::*;
 use pyo3::types::{PyString, PyType};
 use pyo3::wrap_pyfunction;
 
+use std::str::FromStr;
+
 use indy_credx::common::did::DidValue;
 use indy_credx::domain::revocation_registry::RevocationRegistry;
-use indy_credx::domain::revocation_registry_definition::RevocationRegistryDefinition;
+use indy_credx::domain::revocation_registry_definition::{
+    IssuanceType, RegistryType, RevocationRegistryDefinition,
+};
 use indy_credx::services::issuer::{Issuer, TailsFileWriter};
 use indy_credx::services::RevocationKeyPrivate;
 
@@ -167,8 +171,14 @@ fn create_revocation_registry(
     PyRevocationPrivateKey,
 )> {
     let origin_did = origin_did.to_string()?; // FIXME validate (and in other places)
-    let rev_reg_type = None; // FIXME
-    let issuance_type = None;
+    let rev_reg_type = rev_reg_type
+        .map(|rt| RegistryType::from_str(rt.as_str()))
+        .transpose()
+        .map_py_err()?;
+    let issuance_type = issuance_type
+        .map(|rt| IssuanceType::from_str(rt.as_str()))
+        .transpose()
+        .map_py_err()?;
     let tag = tag.unwrap_or_else(|| "default".to_owned()); // FIXME
     let mut tails_writer = TailsFileWriter::new(None);
     let (rev_reg_def, rev_reg, rev_private_key) = Issuer::new_revocation_registry(

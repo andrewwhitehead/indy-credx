@@ -33,7 +33,7 @@ print("cred def private key", cred_def_pk)
 print("cred def correctness proof", cred_def_cp)
 
 (rev_reg_def, rev_reg, rev_key) = create_revocation_registry(
-    origin_did, cred_def, None, 100, None, None
+    origin_did, cred_def, None, 100, "CL_ACCUM", "ISSUANCE_BY_DEFAULT"
 )
 print(rev_reg_def, rev_reg.to_json(), rev_key.to_json())
 

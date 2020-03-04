@@ -4,7 +4,9 @@ use super::credential_definition::CredentialDefinitionId;
 use super::DELIMITER;
 
 use named_type::NamedType;
+use serde::{de::IntoDeserializer, Deserialize};
 use std::collections::HashSet;
+use std::str::FromStr;
 
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
@@ -39,6 +41,14 @@ impl IssuanceType {
     }
 }
 
+impl FromStr for IssuanceType {
+    type Err = IndyError;
+    fn from_str(val: &str) -> IndyResult<Self> {
+        Self::deserialize(<&str as IntoDeserializer>::into_deserializer(val))
+            .with_input_err("Invalid issuance type")
+    }
+}
+
 #[allow(non_camel_case_types)]
 #[derive(Deserialize, Debug, Serialize, PartialEq)]
 pub enum RegistryType {
@@ -50,6 +60,14 @@ impl RegistryType {
         match *self {
             RegistryType::CL_ACCUM => CL_ACCUM,
         }
+    }
+}
+
+impl FromStr for RegistryType {
+    type Err = IndyError;
+    fn from_str(val: &str) -> IndyResult<Self> {
+        Self::deserialize(<&str as IntoDeserializer>::into_deserializer(val))
+            .with_input_err("Invalid registry type")
     }
 }
 
