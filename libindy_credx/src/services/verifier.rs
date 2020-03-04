@@ -3,16 +3,16 @@ use std::collections::{HashMap, HashSet};
 use regex::Regex;
 
 use crate::common::error::prelude::*;
-use crate::domain::credential_definition::{CredentialDefinitionId, CredentialDefinitionV1};
+use crate::domain::credential_definition::{CredentialDefinition, CredentialDefinitionId};
 use crate::domain::proof::{Identifier, Proof, RequestedProof, RevealedAttributeInfo};
 use crate::domain::proof_request::{
-    AttributeInfo, NonRevocedInterval, PredicateInfo, ProofRequestPayload,
+    AttributeInfo, NonRevocedInterval, PredicateInfo, ProofRequest, ProofRequestPayload,
 };
-use crate::domain::revocation_registry::RevocationRegistryV1;
+use crate::domain::revocation_registry::RevocationRegistry;
 use crate::domain::revocation_registry_definition::{
-    RevocationRegistryDefinitionV1, RevocationRegistryId,
+    RevocationRegistryDefinition, RevocationRegistryId,
 };
-use crate::domain::schema::{SchemaId, SchemaV1};
+use crate::domain::schema::{Schema, SchemaId};
 use crate::services::helpers::*;
 
 use crate::utils::wql::Query;
@@ -40,28 +40,28 @@ impl Verifier {
         Verifier {}
     }
 
-    pub fn verify(
-        &self,
+    pub fn verify_proof(
         full_proof: &Proof,
-        proof_req: &ProofRequestPayload,
-        schemas: &HashMap<SchemaId, SchemaV1>,
-        cred_defs: &HashMap<CredentialDefinitionId, CredentialDefinitionV1>,
-        rev_reg_defs: &HashMap<RevocationRegistryId, RevocationRegistryDefinitionV1>,
-        rev_regs: &HashMap<RevocationRegistryId, HashMap<u64, RevocationRegistryV1>>,
+        proof_req: &ProofRequest,
+        schemas: &HashMap<SchemaId, &Schema>,
+        cred_defs: &HashMap<CredentialDefinitionId, &CredentialDefinition>,
+        rev_reg_defs: &HashMap<RevocationRegistryId, &RevocationRegistryDefinition>,
+        rev_regs: &HashMap<RevocationRegistryId, HashMap<u64, RevocationRegistry>>,
     ) -> IndyResult<bool> {
         trace!("verify >>> full_proof: {:?}, proof_req: {:?}, schemas: {:?}, cred_defs: {:?}, rev_reg_defs: {:?} rev_regs: {:?}",
                full_proof, proof_req, schemas, cred_defs, rev_reg_defs, rev_regs);
 
+        let proof_req = proof_req.value();
         let received_revealed_attrs: HashMap<String, Identifier> =
-            Verifier::_received_revealed_attrs(&full_proof)?;
+            Self::_received_revealed_attrs(&full_proof)?;
         let received_unrevealed_attrs: HashMap<String, Identifier> =
-            Verifier::_received_unrevealed_attrs(&full_proof)?;
+            Self::_received_unrevealed_attrs(&full_proof)?;
         let received_predicates: HashMap<String, Identifier> =
-            Verifier::_received_predicates(&full_proof)?;
+            Self::_received_predicates(&full_proof)?;
         let received_self_attested_attrs: HashSet<String> =
-            Verifier::_received_self_attested_attrs(&full_proof);
+            Self::_received_self_attested_attrs(&full_proof);
 
-        Verifier::_compare_attr_from_proof_and_request(
+        Self::_compare_attr_from_proof_and_request(
             proof_req,
             &received_revealed_attrs,
             &received_unrevealed_attrs,
@@ -69,9 +69,9 @@ impl Verifier {
             &received_predicates,
         )?;
 
-        Verifier::_verify_revealed_attribute_values(&proof_req, &full_proof)?;
+        Self::_verify_revealed_attribute_values(&proof_req, &full_proof)?;
 
-        Verifier::_verify_requested_restrictions(
+        Self::_verify_requested_restrictions(
             &proof_req,
             &full_proof.requested_proof,
             &received_revealed_attrs,
@@ -80,7 +80,7 @@ impl Verifier {
             &received_self_attested_attrs,
         )?;
 
-        Verifier::_compare_timestamps_from_proof_and_request(
+        Self::_compare_timestamps_from_proof_and_request(
             proof_req,
             &received_revealed_attrs,
             &received_unrevealed_attrs,
@@ -94,20 +94,23 @@ impl Verifier {
         for sub_proof_index in 0..full_proof.identifiers.len() {
             let identifier = full_proof.identifiers[sub_proof_index].clone();
 
-            let schema: &SchemaV1 = schemas.get(&identifier.schema_id).ok_or_else(|| {
+            let schema = match schemas.get(&identifier.schema_id).ok_or_else(|| {
                 input_err(format!(
                     "Schema not found for id: {:?}",
                     identifier.schema_id
                 ))
-            })?;
+            })? {
+                Schema::SchemaV1(schema) => schema,
+            };
 
-            let cred_def: &CredentialDefinitionV1 =
-                cred_defs.get(&identifier.cred_def_id).ok_or_else(|| {
-                    input_err(format!(
-                        "CredentialDefinition not found for id: {:?}",
-                        identifier.cred_def_id
-                    ))
-                })?;
+            let cred_def = match cred_defs.get(&identifier.cred_def_id).ok_or_else(|| {
+                input_err(format!(
+                    "CredentialDefinition not found for id: {:?}",
+                    identifier.cred_def_id
+                ))
+            })? {
+                CredentialDefinition::CredentialDefinitionV1(cred_def) => cred_def,
+            };
 
             let (rev_reg_def, rev_reg) = if let Some(timestamp) = identifier.timestamp {
                 let rev_reg_id = identifier
@@ -141,12 +144,12 @@ impl Verifier {
                 (None, None)
             };
 
-            let attrs_for_credential = Verifier::_get_revealed_attributes_for_credential(
+            let attrs_for_credential = Self::_get_revealed_attributes_for_credential(
                 sub_proof_index,
                 &full_proof.requested_proof,
                 proof_req,
             )?;
-            let predicates_for_credential = Verifier::_get_predicates_for_credential(
+            let predicates_for_credential = Self::_get_predicates_for_credential(
                 sub_proof_index,
                 &full_proof.requested_proof,
                 proof_req,
@@ -161,15 +164,22 @@ impl Verifier {
                 cred_def.value.revocation.as_ref(),
             )?;
 
+            let rev_key_pub = rev_reg_def.as_ref().map(|r_reg_def| match r_reg_def {
+                RevocationRegistryDefinition::RevocationRegistryDefinitionV1(reg_def) => {
+                    &reg_def.value.public_keys.accum_key
+                }
+            });
+            let rev_reg = rev_reg.as_ref().map(|r_reg| match r_reg {
+                RevocationRegistry::RevocationRegistryV1(reg_def) => &reg_def.value,
+            });
+
             proof_verifier.add_sub_proof_request(
                 &sub_proof_request,
                 &credential_schema,
                 &non_credential_schema,
                 &credential_pub_key,
-                rev_reg_def
-                    .as_ref()
-                    .map(|r_reg_def| &r_reg_def.value.public_keys.accum_key),
-                rev_reg.as_ref().map(|r_reg| &r_reg.value),
+                rev_key_pub,
+                rev_reg,
             )?;
         }
 
@@ -310,14 +320,14 @@ impl Verifier {
             .requested_attributes
             .iter()
             .map(|(referent, info)| {
-                Verifier::_validate_timestamp(
+                Self::_validate_timestamp(
                     &received_revealed_attrs,
                     referent,
                     &proof_req.non_revoked,
                     &info.non_revoked,
                 )
                 .or_else(|_| {
-                    Verifier::_validate_timestamp(
+                    Self::_validate_timestamp(
                         &received_unrevealed_attrs,
                         referent,
                         &proof_req.non_revoked,
@@ -337,7 +347,7 @@ impl Verifier {
             .requested_predicates
             .iter()
             .map(|(referent, info)| {
-                Verifier::_validate_timestamp(
+                Self::_validate_timestamp(
                     received_predicates,
                     referent,
                     &proof_req.non_revoked,
@@ -375,13 +385,13 @@ impl Verifier {
         for (referent, info) in proof.requested_proof.revealed_attrs.iter() {
             revealed_identifiers.insert(
                 referent.to_string(),
-                Verifier::_get_proof_identifier(proof, info.sub_proof_index)?,
+                Self::_get_proof_identifier(proof, info.sub_proof_index)?,
             );
         }
         for (referent, infos) in proof.requested_proof.revealed_attr_groups.iter() {
             revealed_identifiers.insert(
                 referent.to_string(),
-                Verifier::_get_proof_identifier(proof, infos.sub_proof_index)?,
+                Self::_get_proof_identifier(proof, infos.sub_proof_index)?,
             );
         }
         Ok(revealed_identifiers)
@@ -392,7 +402,7 @@ impl Verifier {
         for (referent, info) in proof.requested_proof.unrevealed_attrs.iter() {
             unrevealed_identifiers.insert(
                 referent.to_string(),
-                Verifier::_get_proof_identifier(proof, info.sub_proof_index)?,
+                Self::_get_proof_identifier(proof, info.sub_proof_index)?,
             );
         }
         Ok(unrevealed_identifiers)
@@ -403,7 +413,7 @@ impl Verifier {
         for (referent, info) in proof.requested_proof.predicates.iter() {
             predicate_identifiers.insert(
                 referent.to_string(),
-                Verifier::_get_proof_identifier(proof, info.sub_proof_index)?,
+                Self::_get_proof_identifier(proof, info.sub_proof_index)?,
             );
         }
         Ok(predicate_identifiers)
@@ -451,7 +461,7 @@ impl Verifier {
                         attr_referent
                     ),
                 ))?;
-            Verifier::_verify_revealed_attribute_value(attr_name.as_str(), proof, &attr_info)?;
+            Self::_verify_revealed_attribute_value(attr_name.as_str(), proof, &attr_info)?;
         }
 
         for (attr_referent, attr_infos) in proof.requested_proof.revealed_attr_groups.iter() {
@@ -485,7 +495,7 @@ impl Verifier {
                 let attr_info = &attr_infos.values.get(attr_name).ok_or(input_err(
                     "Proof Revealed Attr Group does not match Proof Request Attribute Group",
                 ))?;
-                Verifier::_verify_revealed_attribute_value(
+                Self::_verify_revealed_attribute_value(
                     attr_name,
                     proof,
                     &RevealedAttributeInfo {
@@ -557,14 +567,14 @@ impl Verifier {
             .requested_attributes
             .iter()
             .filter(|&(referent, info)| {
-                !Verifier::_is_self_attested(&referent, &info, self_attested_attrs)
+                !Self::_is_self_attested(&referent, &info, self_attested_attrs)
             })
             .map(|(referent, info)| (referent.to_string(), info.clone()))
             .collect();
 
         for (referent, info) in requested_attrs {
             if let Some(ref query) = info.restrictions {
-                let filter = Verifier::_gather_filter_info(&referent, &proof_attr_identifiers)?;
+                let filter = Self::_gather_filter_info(&referent, &proof_attr_identifiers)?;
 
                 let name_value_map: HashMap<String, Option<&str>> = if let Some(name) = info.name {
                     let mut map = HashMap::new();
@@ -597,22 +607,20 @@ impl Verifier {
                     ));
                 };
 
-                Verifier::_do_process_operator(&name_value_map, &query, &filter).map_err(
-                    |err| {
-                        err.extend(format!(
-                            "Requested restriction validation failed for \"{:?}\" attributes",
-                            &name_value_map
-                        ))
-                    },
-                )?;
+                Self::_do_process_operator(&name_value_map, &query, &filter).map_err(|err| {
+                    err.extend(format!(
+                        "Requested restriction validation failed for \"{:?}\" attributes",
+                        &name_value_map
+                    ))
+                })?;
             }
         }
 
         for (referent, info) in proof_req.requested_predicates.iter() {
             if let Some(ref query) = info.restrictions {
-                let filter = Verifier::_gather_filter_info(&referent, received_predicates)?;
+                let filter = Self::_gather_filter_info(&referent, received_predicates)?;
 
-                Verifier::_process_operator(&info.name, &query, &filter, None).map_err(|err| {
+                Self::_process_operator(&info.name, &query, &filter, None).map_err(|err| {
                     err.extend(format!(
                         "Requested restriction validation failed for \"{}\" predicate",
                         &info.name
@@ -681,7 +689,7 @@ impl Verifier {
     ) -> IndyResult<()> {
         let mut attr_value_map = HashMap::new();
         attr_value_map.insert(attr.to_string(), revealed_value);
-        Verifier::_do_process_operator(&attr_value_map, restriction_op, filter)
+        Self::_do_process_operator(&attr_value_map, restriction_op, filter)
     }
 
     fn _do_process_operator(
@@ -691,7 +699,7 @@ impl Verifier {
     ) -> IndyResult<()> {
         match restriction_op {
             Query::Eq(ref tag_name, ref tag_value) => {
-                Verifier::_process_filter(attr_value_map, &tag_name, &tag_value, filter).map_err(
+                Self::_process_filter(attr_value_map, &tag_name, &tag_value, filter).map_err(
                     |err| {
                         err.extend(format!(
                             "$eq operator validation failed for tag: \"{}\", value: \"{}\"",
@@ -701,8 +709,7 @@ impl Verifier {
                 )
             }
             Query::Neq(ref tag_name, ref tag_value) => {
-                if Verifier::_process_filter(attr_value_map, &tag_name, &tag_value, filter).is_err()
-                {
+                if Self::_process_filter(attr_value_map, &tag_name, &tag_value, filter).is_err() {
                     Ok(())
                 } else {
                     Err(err_msg(IndyErrorKind::ProofRejected,
@@ -711,7 +718,7 @@ impl Verifier {
             }
             Query::In(ref tag_name, ref tag_values) => {
                 let res = tag_values.iter().any(|val| {
-                    Verifier::_process_filter(attr_value_map, &tag_name, &val, filter).is_ok()
+                    Self::_process_filter(attr_value_map, &tag_name, &val, filter).is_ok()
                 });
                 if res {
                     Ok(())
@@ -727,14 +734,14 @@ impl Verifier {
             }
             Query::And(ref operators) => operators
                 .iter()
-                .map(|op| Verifier::_do_process_operator(attr_value_map, op, filter))
+                .map(|op| Self::_do_process_operator(attr_value_map, op, filter))
                 .collect::<IndyResult<Vec<()>>>()
                 .map(|_| ())
                 .map_err(|err| err.extend("$and operator validation failed.")),
             Query::Or(ref operators) => {
                 let res = operators
                     .iter()
-                    .any(|op| Verifier::_do_process_operator(attr_value_map, op, filter).is_ok());
+                    .any(|op| Self::_do_process_operator(attr_value_map, op, filter).is_ok());
                 if res {
                     Ok(())
                 } else {
@@ -745,7 +752,7 @@ impl Verifier {
                 }
             }
             Query::Not(ref operator) => {
-                if Verifier::_do_process_operator(attr_value_map, &*operator, filter).is_err() {
+                if Self::_do_process_operator(attr_value_map, &*operator, filter).is_err() {
                     Ok(())
                 } else {
                     Err(err_msg(
@@ -775,20 +782,20 @@ impl Verifier {
             filter
         );
         match tag {
-            tag_ @ "schema_id" => Verifier::_precess_filed(tag_, &filter.schema_id, tag_value),
+            tag_ @ "schema_id" => Self::_precess_filed(tag_, &filter.schema_id, tag_value),
             tag_ @ "schema_issuer_did" => {
-                Verifier::_precess_filed(tag_, &filter.schema_issuer_did, tag_value)
+                Self::_precess_filed(tag_, &filter.schema_issuer_did, tag_value)
             }
-            tag_ @ "schema_name" => Verifier::_precess_filed(tag_, &filter.schema_name, tag_value),
+            tag_ @ "schema_name" => Self::_precess_filed(tag_, &filter.schema_name, tag_value),
             tag_ @ "schema_version" => {
-                Verifier::_precess_filed(tag_, &filter.schema_version, tag_value)
+                Self::_precess_filed(tag_, &filter.schema_version, tag_value)
             }
-            tag_ @ "cred_def_id" => Verifier::_precess_filed(tag_, &filter.cred_def_id, tag_value),
-            tag_ @ "issuer_did" => Verifier::_precess_filed(tag_, &filter.issuer_did, tag_value),
-            x if Verifier::_is_attr_internal_tag(x, attr_value_map) => {
-                Verifier::_check_internal_tag_revealed_value(x, tag_value, attr_value_map)
+            tag_ @ "cred_def_id" => Self::_precess_filed(tag_, &filter.cred_def_id, tag_value),
+            tag_ @ "issuer_did" => Self::_precess_filed(tag_, &filter.issuer_did, tag_value),
+            x if Self::_is_attr_internal_tag(x, attr_value_map) => {
+                Self::_check_internal_tag_revealed_value(x, tag_value, attr_value_map)
             }
-            x if Verifier::_is_attr_operator(x) => Ok(()),
+            x if Self::_is_attr_operator(x) => Ok(()),
             _ => Err(input_err("Unknown Filter Type")),
         }
     }

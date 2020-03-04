@@ -172,31 +172,30 @@ impl Prover {
 
         let mut identifiers: Vec<Identifier> = Vec::with_capacity(credentials_for_proving.len());
         for (cred_key, (req_attrs_for_cred, req_predicates_for_cred)) in credentials_for_proving {
-            let credential: &Credential =
-                credentials.get(cred_key.cred_id.as_str()).ok_or_else(|| {
-                    input_err(format!(
-                        "Credential not found by id: {:?}",
-                        cred_key.cred_id
-                    ))
-                })?;
+            let credential = credentials.get(cred_key.cred_id.as_str()).ok_or_else(|| {
+                input_err(format!(
+                    "Credential not provided for ID: {}",
+                    cred_key.cred_id.as_str()
+                ))
+            })?;
 
             let schema = schemas.get(&credential.schema_id).ok_or_else(|| {
+                error!("schemas {:?}", schemas);
                 input_err(format!(
-                    "Schema not found by id: {:?}",
-                    credential.schema_id
+                    "Schema not provided for ID: {}",
+                    credential.schema_id.as_str()
                 ))
             })?;
             let schema = match schema {
                 Schema::SchemaV1(schema) => schema,
             };
 
-            let cred_def: &CredentialDefinition =
-                cred_defs.get(&credential.cred_def_id).ok_or_else(|| {
-                    input_err(format!(
-                        "CredentialDefinition not found by id: {:?}",
-                        credential.cred_def_id
-                    ))
-                })?;
+            let cred_def = cred_defs.get(&credential.cred_def_id).ok_or_else(|| {
+                input_err(format!(
+                    "Credential Definition not provided for ID: {}",
+                    credential.cred_def_id.as_str()
+                ))
+            })?;
             let cred_def = match cred_def {
                 CredentialDefinition::CredentialDefinitionV1(cd) => cd,
             };
@@ -211,12 +210,15 @@ impl Prover {
                     .get(&rev_reg_id.0)
                     .or(rev_states.get(cred_key.cred_id.as_str()))
                     .ok_or_else(|| {
-                        input_err(format!("RevocationState not found by id: {:?}", rev_reg_id))
+                        input_err(format!(
+                            "Revocation State not provided for ID: {}",
+                            rev_reg_id.as_str()
+                        ))
                     })?;
 
                 Some(rev_states_for_timestamp.get(&timestamp).ok_or_else(|| {
                     input_err(format!(
-                        "RevocationInfo not found by timestamp: {:?}",
+                        "Revocation Info not provided for timestamp: {}",
                         timestamp
                     ))
                 })?)

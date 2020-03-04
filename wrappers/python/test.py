@@ -17,11 +17,13 @@ from indy_credx_py import (  # noqa: E402
     process_credential,
     create_proof,
     generate_nonce,
+    verify_proof,
 )
 
 origin_did = "55GkHamhTU1ZbTbV2ab9DE"
 schema = create_schema(origin_did, "schema_name", "1.0", ["one", "two"])
 schema.seq_no = 15
+print("schema", schema.schema_id, schema)
 
 (cred_def, cred_def_pk, cred_def_cp) = create_credential_definition(
     origin_did, schema, None, json.dumps({"support_revocation": True})
@@ -60,8 +62,10 @@ def make_cred():
 def make_and_prove_cred():
     cred = make_cred()
     cred_revcd = process_credential(cred, cred_req_metadata, master_secret, cred_def)
+    schemas = {schema.schema_id: schema}
+    cred_defs = {cred_def.cred_def_id: cred_def}
 
-    creds = {"one": cred_revcd}
+    creds = {"test-cred-id": cred_revcd}
     proof_req = json.dumps(
         {
             "name": "proof",
@@ -75,14 +79,16 @@ def make_and_prove_cred():
     req_creds = json.dumps(
         {
             "self_attested_attributes": {},
-            "requested_attributes": {},
+            "requested_attributes": {
+                "reft": {"cred_id": "test-cred-id", "revealed": True}
+            },
             "requested_predicates": {},
         }
     )
-    print(
-        "proof:",
-        create_proof(proof_req, creds, req_creds, master_secret, dict(), dict()),
-    )
+    proof = create_proof(proof_req, creds, req_creds, master_secret, schemas, cred_defs)
+    print("proof:", proof)
+
+    print("verified:", verify_proof(proof, proof_req, schemas, cred_defs, dict()))
 
     return cred
 

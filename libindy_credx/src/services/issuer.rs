@@ -87,15 +87,19 @@ impl Issuer {
             (Some(prefix_), None) => schema.id.qualify(&prefix_),
             _ => schema.id.clone(),
         };
-        let schema_id = schema
+        let schema_seq_no_id = schema
             .seq_no
             .map(|n| SchemaId(n.to_string()))
-            .unwrap_or(schema_id);
+            .unwrap_or(SchemaId(schema_id.0.clone()));
 
         let signature_type = config.signature_type.unwrap_or(SignatureType::CL);
 
-        let cred_def_id =
-            CredentialDefinitionId::new(origin_did, &schema_id, &signature_type.to_str(), tag);
+        let cred_def_id = CredentialDefinitionId::new(
+            origin_did,
+            &schema_seq_no_id,
+            &signature_type.to_str(),
+            tag,
+        );
 
         let (credential_public_key, credential_private_key, credential_key_correctness_proof) =
             CryptoIssuer::new_credential_def(

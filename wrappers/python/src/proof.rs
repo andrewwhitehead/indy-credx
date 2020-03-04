@@ -9,9 +9,11 @@ use indy_credx::domain::credential_definition::CredentialDefinitionId;
 use indy_credx::domain::proof::Proof;
 use indy_credx::domain::proof_request::ProofRequest;
 use indy_credx::domain::requested_credential::RequestedCredentials;
+use indy_credx::domain::revocation_registry_definition::RevocationRegistryId;
 use indy_credx::domain::schema::SchemaId;
 use indy_credx::services::new_nonce;
 use indy_credx::services::prover::Prover;
+use indy_credx::services::verifier::Verifier;
 
 use crate::buffer::PySafeBuffer;
 use crate::cred::PyCredential;
@@ -19,6 +21,7 @@ use crate::cred_def::PyCredentialDefinition;
 use crate::error::PyIndyResult;
 use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
+use crate::rev_reg::PyRevocationRegistryDefinition;
 use crate::schema::PySchema;
 
 #[pyclass(name=Proof)]
@@ -116,7 +119,6 @@ pub fn create_proof(
     cred_defs: HashMap<String, PyAcceptJsonArg<PyCredentialDefinition>>,
     // rev_states: &HashMap<String, HashMap<u64, RevocationState>>,
 ) -> PyResult<PyProof> {
-    let proof_req = proof_req;
     let master_secret = master_secret.extract_json(py)?;
     let credentials =
         credentials
@@ -156,9 +158,49 @@ pub fn generate_nonce() -> PyResult<String> {
     Ok(nonce.to_dec().map_py_err()?)
 }
 
+#[pyfunction]
+/// Verifies a proof
+pub fn verify_proof(
+    py: Python,
+    proof: PyAcceptBufferArg<PyProof>,
+    proof_req: PyAcceptJsonArg<PyProofRequest>,
+    schemas: HashMap<String, PyAcceptJsonArg<PySchema>>,
+    cred_defs: HashMap<String, PyAcceptJsonArg<PyCredentialDefinition>>,
+    rev_reg_defs: HashMap<String, PyAcceptJsonArg<PyRevocationRegistryDefinition>>,
+    // rev_regs
+) -> PyResult<bool> {
+    let proof = proof.extract_json(py)?;
+    let schema_refs = schemas
+        .iter()
+        .map(|(k, schema)| (SchemaId(k.clone()), &schema.inner))
+        .collect();
+    let cred_def_refs = cred_defs
+        .iter()
+        .map(|(k, cdef)| (CredentialDefinitionId(k.clone()), &cdef.inner))
+        .collect();
+    let rev_reg_def_refs = rev_reg_defs
+        .iter()
+        .map(|(k, rdef)| (RevocationRegistryId(k.clone()), &rdef.inner))
+        .collect();
+    let verified = py
+        .allow_threads(move || {
+            Verifier::verify_proof(
+                &proof,
+                &proof_req,
+                &schema_refs,
+                &cred_def_refs,
+                &rev_reg_def_refs,
+                &HashMap::new(),
+            )
+        })
+        .map_py_err()?;
+    Ok(verified)
+}
+
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_proof))?;
     m.add_wrapped(wrap_pyfunction!(generate_nonce))?;
+    m.add_wrapped(wrap_pyfunction!(verify_proof))?;
     m.add_class::<PyProof>()?;
     m.add_class::<PyProofRequest>()?;
     Ok(())

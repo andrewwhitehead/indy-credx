@@ -162,7 +162,7 @@ pub fn create_credential_definition(
     origin_did: &PyString,
     schema: PyAcceptJsonArg<PySchema>,
     tag: Option<&PyString>,
-    config: Option<PyJsonArg<CredentialDefinitionConfig>>,
+    config: Option<PyJsonArg<CredentialDefinitionConfig>>, // FIXME accept dict
 ) -> PyResult<PyObject> {
     let origin_did = origin_did.to_string()?.to_string();
     let tag = if let Some(tag) = tag {
