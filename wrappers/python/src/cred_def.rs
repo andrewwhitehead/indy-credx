@@ -1,12 +1,17 @@
+use std::str::FromStr;
+
 use pyo3::class::PyObjectProtocol;
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyTuple, PyType};
 use pyo3::wrap_pyfunction;
 
 use indy_credx::common::did::DidValue;
-use indy_credx::domain::credential_definition::{CredentialDefinition, CredentialDefinitionConfig};
+use indy_credx::domain::credential_definition::{
+    CredentialDefinition, CredentialDefinitionConfig, SignatureType,
+};
 use indy_credx::services as Services;
 use indy_credx::services::issuer::Issuer;
+use indy_credx::utils::validation::Validatable;
 
 use crate::buffer::PySafeBuffer;
 use crate::error::PyIndyResult;
@@ -159,26 +164,26 @@ impl PyObjectProtocol for PyCredentialKeyCorrectnessProof {
 /// Creates a new credential definition
 pub fn create_credential_definition(
     py: Python,
-    origin_did: &PyString,
+    origin_did: String,
     schema: PyAcceptJsonArg<PySchema>,
-    tag: Option<&PyString>,
+    signature_type: String,
+    tag: Option<String>,
     config: Option<PyJsonArg<CredentialDefinitionConfig>>, // FIXME accept dict
 ) -> PyResult<PyObject> {
-    let origin_did = origin_did.to_string()?.to_string();
-    let tag = if let Some(tag) = tag {
-        String::clone(&tag.to_string()?.to_string())
-    } else {
-        "default".to_string() // FIXME use constant
-    };
+    let origin_did = DidValue(origin_did);
+    origin_did.validate().map_py_err()?;
+    let tag = tag.unwrap_or("default".to_string()); // FIXME use constant
     let config = config
         .map(|cfg| cfg.clone())
         .unwrap_or_else(|| CredentialDefinitionConfig::default());
+    let signature_type = SignatureType::from_str(&signature_type).map_py_err()?;
     let (cred_def, private_key, correctness_proof) = py
         .allow_threads(move || {
             Issuer::new_credential_definition(
-                &DidValue(origin_did),
+                &origin_did,
                 &schema.inner,
                 tag.as_str(),
+                signature_type,
                 config,
             )
         })

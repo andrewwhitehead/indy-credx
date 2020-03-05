@@ -1,21 +1,24 @@
-use super::schema::SchemaId;
-use super::DELIMITER;
+use std::str::FromStr;
 
-use crate::common::did::DidValue;
-use crate::common::error::prelude::*;
-use crate::utils::qualifier;
-use crate::utils::validation::Validatable;
-
+use serde::{de::IntoDeserializer, Deserialize};
 use ursa::cl::{
     CredentialPrimaryPublicKey, CredentialPrivateKey, CredentialPublicKey,
     CredentialRevocationPublicKey,
 };
 
+use crate::common::did::DidValue;
+use crate::common::error::prelude::*;
+use crate::utils::qualifier::{self, Qualifiable};
+use crate::utils::validation::{Validatable, ValidationError};
+
+use super::schema::SchemaId;
+use super::DELIMITER;
+
 use named_type::NamedType;
 
 pub const CL_SIGNATURE_TYPE: &str = "CL";
 
-#[derive(Deserialize, Debug, Serialize, PartialEq, Clone)]
+#[derive(Deserialize, Debug, Serialize, PartialEq, Copy, Clone)]
 pub enum SignatureType {
     CL,
 }
@@ -28,26 +31,28 @@ impl SignatureType {
     }
 }
 
+impl FromStr for SignatureType {
+    type Err = ValidationError;
+    fn from_str(val: &str) -> Result<Self, ValidationError> {
+        Self::deserialize(<&str as IntoDeserializer>::into_deserializer(val))
+            .map_err(|_| invalid!("Invalid signature type"))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CredentialDefinitionConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub signature_type: Option<SignatureType>,
     pub support_revocation: bool,
 }
 
 impl CredentialDefinitionConfig {
-    pub fn new(support_revocation: bool, signature_type: Option<SignatureType>) -> Self {
-        Self {
-            signature_type,
-            support_revocation,
-        }
+    pub fn new(support_revocation: bool) -> Self {
+        Self { support_revocation }
     }
 }
 
 impl Default for CredentialDefinitionConfig {
     fn default() -> Self {
         Self {
-            signature_type: None,
             support_revocation: false,
         }
     }
@@ -95,7 +100,7 @@ impl CredentialDefinitionV1 {
 }
 
 impl Validatable for CredentialDefinitionV1 {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         self.id.validate()?;
         self.schema_id.validate()?;
         Ok(())
@@ -126,7 +131,7 @@ impl CredentialDefinition {
 }
 
 impl Validatable for CredentialDefinition {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         match self {
             CredentialDefinition::CredentialDefinitionV1(cred_def) => cred_def.validate(),
         }
@@ -140,22 +145,47 @@ pub struct CredentialDefinitionPrivateKey {
 
 qualifiable_type!(CredentialDefinitionId);
 
+impl Qualifiable for CredentialDefinitionId {
+    fn prefix() -> &'static str {
+        Self::PREFIX
+    }
+
+    fn combine(method: Option<&str>, entity: &str) -> Self {
+        let cid = Self(entity.to_owned());
+        match cid.parts() {
+            Some((_, did, sigtype, schema_id, tag)) => Self::from(qualifier::combine(
+                Self::PREFIX,
+                method,
+                Self::new(&did.default_method(method), &schema_id, &sigtype, &tag).as_str(),
+            )),
+            None => cid,
+        }
+    }
+
+    fn to_unqualified(&self) -> Self {
+        match self.parts() {
+            Some((_, did, sig_type, schema_id, tag)) => Self::new(
+                &did.to_unqualified(),
+                &schema_id.to_unqualified(),
+                &sig_type,
+                &tag,
+            ),
+            None => self.clone(),
+        }
+    }
+}
+
 impl CredentialDefinitionId {
     pub const PREFIX: &'static str = "creddef";
     pub const MARKER: &'static str = "3";
 
-    pub fn new(
-        did: &DidValue,
-        schema_id: &SchemaId,
-        signature_type: &str,
-        tag: &str,
-    ) -> CredentialDefinitionId {
+    pub fn new(did: &DidValue, schema_id: &SchemaId, signature_type: &str, tag: &str) -> Self {
         let tag = if tag.is_empty() {
             format!("")
         } else {
             format!("{}{}", DELIMITER, tag)
         };
-        let id = CredentialDefinitionId(format!(
+        let id = format!(
             "{}{}{}{}{}{}{}{}",
             did.0,
             DELIMITER,
@@ -165,14 +195,15 @@ impl CredentialDefinitionId {
             DELIMITER,
             schema_id.0,
             tag
-        ));
-        match did.get_method() {
-            Some(method) => id.set_method(&method),
-            None => id,
-        }
+        );
+        Self::from(qualifier::combine(
+            Self::PREFIX,
+            did.get_method(),
+            id.as_str(),
+        ))
     }
 
-    pub fn parts(&self) -> Option<(DidValue, String, SchemaId, String)> {
+    pub fn parts(&self) -> Option<(Option<&str>, DidValue, String, SchemaId, String)> {
         let parts = self.0.split_terminator(DELIMITER).collect::<Vec<&str>>();
 
         if parts.len() == 4 {
@@ -181,7 +212,13 @@ impl CredentialDefinitionId {
             let signature_type = parts[2].to_string();
             let schema_id = parts[3].to_string();
             let tag = String::new();
-            return Some((DidValue(did), signature_type, SchemaId(schema_id), tag));
+            return Some((
+                None,
+                DidValue(did),
+                signature_type,
+                SchemaId(schema_id),
+                tag,
+            ));
         }
 
         if parts.len() == 5 {
@@ -190,7 +227,13 @@ impl CredentialDefinitionId {
             let signature_type = parts[2].to_string();
             let schema_id = parts[3].to_string();
             let tag = parts[4].to_string();
-            return Some((DidValue(did), signature_type, SchemaId(schema_id), tag));
+            return Some((
+                None,
+                DidValue(did),
+                signature_type,
+                SchemaId(schema_id),
+                tag,
+            ));
         }
 
         if parts.len() == 7 {
@@ -199,7 +242,13 @@ impl CredentialDefinitionId {
             let signature_type = parts[2].to_string();
             let schema_id = parts[3..7].join(DELIMITER);
             let tag = String::new();
-            return Some((DidValue(did), signature_type, SchemaId(schema_id), tag));
+            return Some((
+                None,
+                DidValue(did),
+                signature_type,
+                SchemaId(schema_id),
+                tag,
+            ));
         }
 
         if parts.len() == 8 {
@@ -208,65 +257,61 @@ impl CredentialDefinitionId {
             let signature_type = parts[2].to_string();
             let schema_id = parts[3..7].join(DELIMITER);
             let tag = parts[7].to_string();
-            return Some((DidValue(did), signature_type, SchemaId(schema_id), tag));
+            return Some((
+                None,
+                DidValue(did),
+                signature_type,
+                SchemaId(schema_id),
+                tag,
+            ));
         }
 
         if parts.len() == 9 {
             // creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:3:tag
+            let method = parts[1];
             let did = parts[2..5].join(DELIMITER);
             let signature_type = parts[6].to_string();
             let schema_id = parts[7].to_string();
             let tag = parts[8].to_string();
-            return Some((DidValue(did), signature_type, SchemaId(schema_id), tag));
+            return Some((
+                Some(method),
+                DidValue(did),
+                signature_type,
+                SchemaId(schema_id),
+                tag,
+            ));
         }
 
         if parts.len() == 16 {
             // creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag
+            let method = parts[1];
             let did = parts[2..5].join(DELIMITER);
             let signature_type = parts[6].to_string();
             let schema_id = parts[7..15].join(DELIMITER);
             let tag = parts[15].to_string();
-            return Some((DidValue(did), signature_type, SchemaId(schema_id), tag));
+            return Some((
+                Some(method),
+                DidValue(did),
+                signature_type,
+                SchemaId(schema_id),
+                tag,
+            ));
         }
 
         None
     }
 
     pub fn issuer_did(&self) -> Option<DidValue> {
-        self.parts().map(|(did, _, _, _)| did)
-    }
-
-    pub fn qualify(&self, method: &str) -> CredentialDefinitionId {
-        match self.parts() {
-            Some((did, signature_type, schema_id, tag)) => CredentialDefinitionId::new(
-                &did.qualify(method),
-                &schema_id.qualify(method),
-                &signature_type,
-                &tag,
-            ),
-            None => self.clone(),
-        }
-    }
-
-    pub fn to_unqualified(&self) -> CredentialDefinitionId {
-        match self.parts() {
-            Some((did, signature_type, schema_id, tag)) => CredentialDefinitionId::new(
-                &did.to_unqualified(),
-                &schema_id.to_unqualified(),
-                &signature_type,
-                &tag,
-            ),
-            None => self.clone(),
-        }
+        self.parts().map(|(_, did, _, _, _)| did)
     }
 }
 
 impl Validatable for CredentialDefinitionId {
-    fn validate(&self) -> IndyResult<()> {
-        self.parts().ok_or(input_err(format!(
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.parts().ok_or(invalid!(
             "Credential Definition Id validation failed: {:?}, doesn't match pattern",
             self.0
-        )))?;
+        ))?;
         Ok(())
     }
 }
@@ -389,7 +434,8 @@ mod tests {
 
         #[test]
         fn test_cred_def_id_parts_for_id_as_unqualified() {
-            let (did, signature_type, schema_id, tag) = _cred_def_id_unqualified().parts().unwrap();
+            let (_, did, signature_type, schema_id, tag) =
+                _cred_def_id_unqualified().parts().unwrap();
             assert_eq!(_did(), did);
             assert_eq!(_signature_type(), signature_type);
             assert_eq!(_schema_id_unqualified(), schema_id);
@@ -398,7 +444,7 @@ mod tests {
 
         #[test]
         fn test_cred_def_id_parts_for_id_as_unqualified_without_tag() {
-            let (did, signature_type, schema_id, tag) =
+            let (_, did, signature_type, schema_id, tag) =
                 _cred_def_id_unqualified_without_tag().parts().unwrap();
             assert_eq!(_did(), did);
             assert_eq!(_signature_type(), signature_type);
@@ -408,7 +454,7 @@ mod tests {
 
         #[test]
         fn test_cred_def_id_parts_for_id_as_unqualified_with_schema_as_seq() {
-            let (did, signature_type, schema_id, tag) =
+            let (_, did, signature_type, schema_id, tag) =
                 _cred_def_id_unqualified_with_schema_as_seq_no()
                     .parts()
                     .unwrap();
@@ -420,7 +466,7 @@ mod tests {
 
         #[test]
         fn test_cred_def_id_parts_for_id_as_unqualified_with_schema_as_seq_without_tag() {
-            let (did, signature_type, schema_id, tag) =
+            let (_, did, signature_type, schema_id, tag) =
                 _cred_def_id_unqualified_with_schema_as_seq_no_without_tag()
                     .parts()
                     .unwrap();
@@ -432,7 +478,8 @@ mod tests {
 
         #[test]
         fn test_cred_def_id_parts_for_id_as_qualified() {
-            let (did, signature_type, schema_id, tag) = _cred_def_id_qualified().parts().unwrap();
+            let (_, did, signature_type, schema_id, tag) =
+                _cred_def_id_qualified().parts().unwrap();
             assert_eq!(_did_qualified(), did);
             assert_eq!(_signature_type(), signature_type);
             assert_eq!(_schema_id_qualified(), schema_id);
@@ -441,7 +488,7 @@ mod tests {
 
         #[test]
         fn test_cred_def_id_parts_for_id_as_qualified_with_schema_as_seq() {
-            let (did, signature_type, schema_id, tag) =
+            let (_, did, signature_type, schema_id, tag) =
                 _cred_def_id_qualified_with_schema_as_seq_no()
                     .parts()
                     .unwrap();

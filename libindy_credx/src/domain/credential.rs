@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use named_type::NamedType;
 use ursa::cl::{CredentialSignature, RevocationRegistry, SignatureCorrectnessProof, Witness};
 
-use crate::common::error::prelude::*;
-use crate::utils::validation::Validatable;
+use crate::utils::validation::{Validatable, ValidationError};
 
 use super::credential_definition::CredentialDefinitionId;
 use super::revocation_registry_definition::RevocationRegistryId;
@@ -59,9 +58,9 @@ pub struct AttributeValues {
 }
 
 impl Validatable for CredentialValues {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         if self.0.is_empty() {
-            return Err(input_err(
+            return Err(invalid!(
                 "CredentialValues validation failed: empty list has been passed",
             ));
         }
@@ -71,17 +70,17 @@ impl Validatable for CredentialValues {
 }
 
 impl Validatable for Credential {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         self.schema_id.validate()?;
         self.cred_def_id.validate()?;
         self.values.validate()?;
 
         if self.rev_reg_id.is_some() && (self.witness.is_none() || self.rev_reg.is_none()) {
-            return Err(input_err("Credential validation failed: `witness` and `rev_reg` must be passed for revocable Credential"));
+            return Err(invalid!("Credential validation failed: `witness` and `rev_reg` must be passed for revocable Credential"));
         }
 
         if self.values.0.is_empty() {
-            return Err(input_err("Credential validation failed: `values` is empty"));
+            return Err(invalid!("Credential validation failed: `values` is empty"));
         }
 
         Ok(())

@@ -10,6 +10,7 @@ use indy_credx::common::did::DidValue;
 use indy_credx::domain::schema::Schema;
 use indy_credx::services as Services;
 use indy_credx::services::issuer::Issuer;
+use indy_credx::utils::validation::Validatable;
 
 use crate::error::PyIndyResult;
 
@@ -103,27 +104,21 @@ impl std::ops::Deref for PySchema {
 /// Creates a new schema
 fn create_schema(
     py: Python,
-    origin_did: &PyString,
-    schema_name: &PyString,
-    schema_version: &PyString,
+    origin_did: String,
+    schema_name: String,
+    schema_version: String,
     attr_names: PyObject,
 ) -> PyResult<PySchema> {
-    let origin_did = origin_did.to_string()?;
-    let schema_name = schema_name.to_string()?;
-    let schema_version = schema_version.to_string()?;
+    let origin_did = DidValue(origin_did);
+    origin_did.validate().map_py_err()?;
     let mut attrs = HashSet::new();
     let attr_names = attr_names.cast_as::<PySequence>(py)?;
     for attr in attr_names.iter()? {
         attrs.insert(ObjectProtocol::extract::<String>(attr?)?);
     }
     let attr_names = Services::AttributeNames::from(attrs);
-    let schema = Issuer::new_schema(
-        &DidValue(origin_did.into_owned()),
-        &*schema_name,
-        &*schema_version,
-        attr_names,
-    )
-    .map_py_err_msg(|| "Error creating schema")?;
+    let schema = Issuer::new_schema(&origin_did, &schema_name, &schema_version, attr_names)
+        .map_py_err_msg(|| "Error creating schema")?;
     Ok(PySchema::from(schema))
 }
 

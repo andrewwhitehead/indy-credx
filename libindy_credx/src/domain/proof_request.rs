@@ -6,9 +6,8 @@ use serde_json::Value;
 use ursa::cl::Nonce;
 
 use crate::common::did::DidValue;
-use crate::common::error::prelude::*;
-use crate::utils::qualifier;
-use crate::utils::validation::Validatable;
+use crate::utils::qualifier::{self, Qualifiable};
+use crate::utils::validation::{Validatable, ValidationError};
 use crate::utils::wql::Query;
 
 use super::credential::Credential;
@@ -203,12 +202,12 @@ pub struct RequestedPredicateInfo {
 }
 
 impl Validatable for ProofRequest {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         let value = self.value();
         let version = self.version();
 
         if value.requested_attributes.is_empty() && value.requested_predicates.is_empty() {
-            return Err(input_err("Proof Request validation failed: both `requested_attributes` and `requested_predicates` are empty"));
+            return Err(invalid!("Proof Request validation failed: both `requested_attributes` and `requested_predicates` are empty"));
         }
 
         for (_, requested_attribute) in value.requested_attributes.iter() {
@@ -223,14 +222,14 @@ impl Validatable for ProofRequest {
                 .map(Vec::is_empty)
                 .unwrap_or(true);
             if !has_name && !has_names {
-                return Err(input_err(format!(
+                return Err(invalid!(
                     "Proof Request validation failed: there is empty requested attribute: {:?}",
                     requested_attribute
-                )));
+                ));
             }
 
             if has_name && has_names {
-                return Err(input_err(format!("Proof request validation failed: there is a requested attribute with both name and names: {:?}", requested_attribute)));
+                return Err(invalid!("Proof request validation failed: there is a requested attribute with both name and names: {:?}", requested_attribute));
             }
 
             if let Some(ref restrictions) = requested_attribute.restrictions {
@@ -240,10 +239,10 @@ impl Validatable for ProofRequest {
 
         for (_, requested_predicate) in value.requested_predicates.iter() {
             if requested_predicate.name.is_empty() {
-                return Err(input_err(format!(
+                return Err(invalid!(
                     "Proof Request validation failed: there is empty requested attribute: {:?}",
                     requested_predicate
-                )));
+                ));
             }
             if let Some(ref restrictions) = requested_predicate.restrictions {
                 _process_operator(&restrictions, &version)?;
@@ -336,7 +335,10 @@ fn _convert_value_to_unqualified(tag_name: &str, tag_value: &str) -> String {
     }
 }
 
-fn _process_operator(restriction_op: &Query, version: &ProofRequestsVersion) -> IndyResult<()> {
+fn _process_operator(
+    restriction_op: &Query,
+    version: &ProofRequestsVersion,
+) -> Result<(), ValidationError> {
     match restriction_op {
         Query::Eq(ref tag_name, ref tag_value)
         | Query::Neq(ref tag_name, ref tag_value)
@@ -351,14 +353,14 @@ fn _process_operator(restriction_op: &Query, version: &ProofRequestsVersion) -> 
             tag_values
                 .iter()
                 .map(|tag_value| _check_restriction(tag_name, tag_value, version))
-                .collect::<IndyResult<Vec<()>>>()?;
+                .collect::<Result<Vec<()>, ValidationError>>()?;
             Ok(())
         }
         Query::And(ref operators) | Query::Or(ref operators) => {
             operators
                 .iter()
                 .map(|operator| _process_operator(operator, version))
-                .collect::<IndyResult<Vec<()>>>()?;
+                .collect::<Result<Vec<()>, ValidationError>>()?;
             Ok(())
         }
         Query::Not(ref operator) => _process_operator(operator, version),
@@ -369,12 +371,12 @@ fn _check_restriction(
     tag_name: &str,
     tag_value: &str,
     version: &ProofRequestsVersion,
-) -> IndyResult<()> {
+) -> Result<(), ValidationError> {
     if *version == ProofRequestsVersion::V1
         && Credential::QUALIFIABLE_TAGS.contains(&tag_name)
         && qualifier::is_fully_qualified(tag_value)
     {
-        return Err(input_err("Proof Request validation failed: fully qualified identifiers can not be used for Proof Request of the first version. \
+        return Err(invalid!("Proof Request validation failed: fully qualified identifiers can not be used for Proof Request of the first version. \
                     Please, set \"ver\":\"2.0\" to use fully qualified identifiers."));
     }
     Ok(())

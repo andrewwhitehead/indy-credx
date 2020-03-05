@@ -22,6 +22,7 @@ use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
 use crate::domain::revocation_state::RevocationState;
 use crate::domain::schema::{Schema, SchemaId};
 use crate::services::helpers::*;
+use crate::utils::qualifier::Qualifiable;
 use crate::utils::wql::Query;
 
 use super::{
@@ -410,7 +411,7 @@ impl Prover {
 
         let mut res: HashMap<String, String> = HashMap::new();
 
-        let (schema_issuer_did, schema_name, schema_version) =
+        let (_, schema_issuer_did, schema_name, schema_version) =
             credential.schema_id.parts().ok_or(err_msg(
                 IndyErrorKind::InvalidState,
                 format!(

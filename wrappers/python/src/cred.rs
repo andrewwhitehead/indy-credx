@@ -66,22 +66,21 @@ pub fn create_credential(
     cred_private_key: PyAcceptBufferArg<PyCredentialPrivateKey>,
     cred_offer: PyAcceptJsonArg<PyCredentialOffer>,
     cred_request: PyAcceptJsonArg<PyCredentialRequest>,
-    cred_values: &PyString,
+    cred_values: String,
     /* ^ FIXME add helper to prepare credential values (w/attribute encoding),
     and pass in safe buffer here */
     // , revocation config
 ) -> PyResult<PyCredential> {
-    let cred_values = cred_values.to_string()?;
     let cred_values =
         serde_json::from_str::<CredentialValues>(cred_values.as_ref()).map_py_err()?;
     let cred_private_key = &cred_private_key.extract_json(py)?;
     let (credential, _delta) = py
         .allow_threads(move || {
             Issuer::new_credential::<Services::NullTailsAccessor>(
-                &cred_def.inner,
+                &cred_def,
                 &cred_private_key,
-                &cred_offer.inner,
-                &cred_request.inner,
+                &cred_offer,
+                &cred_request,
                 &cred_values,
                 None,
             )

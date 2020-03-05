@@ -4,9 +4,8 @@ use named_type::NamedType;
 use std::collections::HashSet;
 
 use crate::common::did::DidValue;
-use crate::common::error::prelude::*;
-use crate::utils::qualifier;
-use crate::utils::validation::Validatable;
+use crate::utils::qualifier::{self, Qualifiable};
+use crate::utils::validation::{Validatable, ValidationError};
 
 pub const MAX_ATTRIBUTES_COUNT: usize = 125;
 
@@ -22,21 +21,23 @@ pub struct SchemaV1 {
 }
 
 impl Validatable for SchemaV1 {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         self.attr_names.validate()?;
         self.id.validate()?;
-        if let Some((_, name, version)) = self.id.parts() {
+        if let Some((_, _, name, version)) = self.id.parts() {
             if name != self.name {
-                return Err(input_err(format!(
+                return Err(invalid!(
                     "Inconsistent Schema Id and Schema Name: {:?} and {}",
-                    self.id, self.name
-                )));
+                    self.id,
+                    self.name
+                ));
             }
             if version != self.version {
-                return Err(input_err(format!(
+                return Err(invalid!(
                     "Inconsistent Schema Id and Schema Version: {:?} and {}",
-                    self.id, self.version
-                )));
+                    self.id,
+                    self.version
+                ));
             }
         }
         Ok(())
@@ -65,7 +66,7 @@ impl Schema {
 }
 
 impl Validatable for Schema {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         match self {
             Schema::SchemaV1(schema) => schema.validate(),
         }
@@ -95,17 +96,17 @@ impl Into<HashSet<String>> for AttributeNames {
 }
 
 impl Validatable for AttributeNames {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         if self.0.is_empty() {
-            return Err(input_err("Empty list of Schema attributes has been passed"));
+            return Err(invalid!("Empty list of Schema attributes has been passed"));
         }
 
         if self.0.len() > MAX_ATTRIBUTES_COUNT {
-            return Err(input_err(format!(
+            return Err(invalid!(
                 "The number of Schema attributes {} cannot be greater than {}",
                 self.0.len(),
                 MAX_ATTRIBUTES_COUNT
-            )));
+            ));
         }
         Ok(())
     }
@@ -113,12 +114,44 @@ impl Validatable for AttributeNames {
 
 qualifiable_type!(SchemaId);
 
+impl Qualifiable for SchemaId {
+    fn prefix() -> &'static str {
+        Self::PREFIX
+    }
+
+    fn combine(method: Option<&str>, entity: &str) -> Self {
+        let sid = Self(entity.to_owned());
+        match sid.parts() {
+            Some((_, did, name, version)) => Self::from(qualifier::combine(
+                Self::PREFIX,
+                method,
+                Self::new(&did.default_method(method), &name, &version).as_str(),
+            )),
+            None => sid,
+        }
+    }
+
+    fn to_unqualified(&self) -> Self {
+        match self.parts() {
+            Some((method, did, name, version)) => {
+                let did = if let Some(method) = method {
+                    did.remove_method(method)
+                } else {
+                    did
+                };
+                Self::new(&did, &name, &version)
+            }
+            None => self.clone(),
+        }
+    }
+}
+
 impl SchemaId {
     pub const PREFIX: &'static str = "schema";
     pub const MARKER: &'static str = "2";
 
     pub fn new(did: &DidValue, name: &str, version: &str) -> SchemaId {
-        let id = SchemaId(format!(
+        let id = format!(
             "{}{}{}{}{}{}{}",
             did.0,
             DELIMITER,
@@ -127,14 +160,15 @@ impl SchemaId {
             name,
             DELIMITER,
             version
-        ));
-        match did.get_method() {
-            Some(method) => id.set_method(&method),
-            None => id,
-        }
+        );
+        Self::from(qualifier::combine(
+            Self::PREFIX,
+            did.get_method(),
+            id.as_str(),
+        ))
     }
 
-    pub fn parts(&self) -> Option<(DidValue, String, String)> {
+    pub fn parts(&self) -> Option<(Option<&str>, DidValue, String, String)> {
         let parts = self.0.split_terminator(DELIMITER).collect::<Vec<&str>>();
 
         if parts.len() == 1 {
@@ -147,45 +181,32 @@ impl SchemaId {
             let did = parts[0].to_string();
             let name = parts[2].to_string();
             let version = parts[3].to_string();
-            return Some((DidValue(did), name, version));
+            return Some((None, DidValue(did), name, version));
         }
 
         if parts.len() == 8 {
             // schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0
+            let method = parts[1];
             let did = parts[2..5].join(DELIMITER);
             let name = parts[6].to_string();
             let version = parts[7].to_string();
-            return Some((DidValue(did), name, version));
+            return Some((Some(method), DidValue(did), name, version));
         }
 
         None
     }
-
-    pub fn qualify(&self, method: &str) -> SchemaId {
-        match self.parts() {
-            Some((did, name, version)) => SchemaId::new(&did.qualify(method), &name, &version),
-            None => self.clone(),
-        }
-    }
-
-    pub fn to_unqualified(&self) -> SchemaId {
-        match self.parts() {
-            Some((did, name, version)) => SchemaId::new(&did.to_unqualified(), &name, &version),
-            None => self.clone(),
-        }
-    }
 }
 
 impl Validatable for SchemaId {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         if self.0.parse::<i32>().is_ok() {
             return Ok(());
         }
 
-        self.parts().ok_or(input_err(format!(
+        self.parts().ok_or(invalid!(
             "SchemaId validation failed: {:?}, doesn't match pattern",
             self.0
-        )))?;
+        ))?;
 
         Ok(())
     }
@@ -259,13 +280,13 @@ mod tests {
 
         #[test]
         fn test_schema_id_parts_for_id_as_unqualified() {
-            let (did, _, _) = _schema_id_unqualified().parts().unwrap();
+            let (_, did, _, _) = _schema_id_unqualified().parts().unwrap();
             assert_eq!(_did(), did);
         }
 
         #[test]
         fn test_schema_id_parts_for_id_as_qualified() {
-            let (did, _, _) = _schema_id_qualified().parts().unwrap();
+            let (_, did, _, _) = _schema_id_qualified().parts().unwrap();
             assert_eq!(_did_qualified(), did);
         }
 

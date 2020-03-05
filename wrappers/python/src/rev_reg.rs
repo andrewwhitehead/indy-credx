@@ -12,6 +12,7 @@ use indy_credx::domain::revocation_registry_definition::{
 };
 use indy_credx::services::issuer::{Issuer, TailsFileWriter};
 use indy_credx::services::RevocationKeyPrivate;
+use indy_credx::utils::validation::Validatable;
 
 use crate::buffer::PySafeBuffer;
 use crate::cred_def::PyCredentialDefinition;
@@ -158,11 +159,11 @@ impl PyJsonSafeBuffer for PyRevocationPrivateKey {
 /// Creates a new revocation registry
 fn create_revocation_registry(
     py: Python,
-    origin_did: &PyString,
+    origin_did: String,
     cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
+    rev_reg_type: String,
     tag: Option<String>,
     max_cred_num: u32,
-    rev_reg_type: Option<String>,
     issuance_type: Option<String>,
     // FIXME optional tails path
 ) -> PyResult<(
@@ -170,25 +171,24 @@ fn create_revocation_registry(
     PyRevocationRegistry,
     PyRevocationPrivateKey,
 )> {
-    let origin_did = origin_did.to_string()?; // FIXME validate (and in other places)
-    let rev_reg_type = rev_reg_type
-        .map(|rt| RegistryType::from_str(rt.as_str()))
-        .transpose()
-        .map_py_err()?;
+    let origin_did = DidValue(origin_did);
+    origin_did.validate().map_py_err()?;
+    let rev_reg_type = RegistryType::from_str(rev_reg_type.as_str()).map_py_err()?;
     let issuance_type = issuance_type
-        .map(|rt| IssuanceType::from_str(rt.as_str()))
+        .map(|it| IssuanceType::from_str(it.as_str()))
         .transpose()
-        .map_py_err()?;
+        .map_py_err()?
+        .unwrap_or(IssuanceType::ISSUANCE_BY_DEFAULT);
     let tag = tag.unwrap_or_else(|| "default".to_owned()); // FIXME
     let mut tails_writer = TailsFileWriter::new(None);
     let (rev_reg_def, rev_reg, rev_private_key) = Issuer::new_revocation_registry(
-        &DidValue(origin_did.into_owned()),
+        &origin_did,
         &cred_def,
         tag.as_str(),
-        max_cred_num,
-        &mut tails_writer,
         rev_reg_type,
         issuance_type,
+        max_cred_num,
+        &mut tails_writer,
     )
     .map_py_err_msg(|| "Error creating revocation registry")?; // FIXME combine error
     Ok((

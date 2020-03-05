@@ -657,7 +657,7 @@ impl Verifier {
             )
         })?;
 
-        let (schema_issuer_did, schema_name, schema_version) =
+        let (_, schema_issuer_did, schema_name, schema_version) =
             identifier.schema_id.parts().ok_or(input_err(format!(
                 "Invalid Schema ID `{}`: wrong number of parts",
                 identifier.schema_id.0

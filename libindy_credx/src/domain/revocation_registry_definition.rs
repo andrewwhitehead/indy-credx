@@ -9,12 +9,10 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use crate::common::did::DidValue;
-use crate::common::error::prelude::*;
-use crate::utils::qualifier;
-use crate::utils::validation::Validatable;
+use crate::utils::qualifier::{self, Qualifiable};
+use crate::utils::validation::{Validatable, ValidationError};
 
 pub const CL_ACCUM: &str = "CL_ACCUM";
-pub const REV_REG_DEG_MARKER: &str = "4";
 
 use regex::Regex;
 
@@ -29,7 +27,7 @@ pub struct RevocationRegistryConfig {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Deserialize, Debug, Serialize, PartialEq, Clone)]
+#[derive(Deserialize, Debug, Serialize, PartialEq, Clone, Copy)]
 pub enum IssuanceType {
     ISSUANCE_BY_DEFAULT,
     ISSUANCE_ON_DEMAND,
@@ -42,15 +40,15 @@ impl IssuanceType {
 }
 
 impl FromStr for IssuanceType {
-    type Err = IndyError;
-    fn from_str(val: &str) -> IndyResult<Self> {
+    type Err = ValidationError;
+    fn from_str(val: &str) -> Result<Self, ValidationError> {
         Self::deserialize(<&str as IntoDeserializer>::into_deserializer(val))
-            .with_input_err("Invalid issuance type")
+            .map_err(|_| invalid!("Invalid issuance type"))
     }
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Deserialize, Debug, Serialize, PartialEq)]
+#[derive(Deserialize, Debug, Serialize, PartialEq, Clone, Copy)]
 pub enum RegistryType {
     CL_ACCUM,
 }
@@ -64,10 +62,10 @@ impl RegistryType {
 }
 
 impl FromStr for RegistryType {
-    type Err = IndyError;
-    fn from_str(val: &str) -> IndyResult<Self> {
+    type Err = ValidationError;
+    fn from_str(val: &str) -> Result<Self, ValidationError> {
         Self::deserialize(<&str as IntoDeserializer>::into_deserializer(val))
-            .with_input_err("Invalid registry type")
+            .map_err(|_| invalid!("Invalid registry type"))
     }
 }
 
@@ -136,8 +134,27 @@ pub struct RevocationRegistryInfo {
 
 qualifiable_type!(RevocationRegistryId);
 
+impl Qualifiable for RevocationRegistryId {
+    fn prefix() -> &'static str {
+        Self::PREFIX
+    }
+
+    fn to_unqualified(&self) -> Self {
+        match self.parts() {
+            Some((did, cred_def_id, rev_reg_type, tag)) => Self::new(
+                &did.to_unqualified(),
+                &cred_def_id.to_unqualified(),
+                &rev_reg_type,
+                &tag,
+            ),
+            None => self.clone(),
+        }
+    }
+}
+
 impl RevocationRegistryId {
     pub const PREFIX: &'static str = "revreg";
+    pub const MARKER: &'static str = "4";
 
     pub fn new(
         did: &DidValue,
@@ -145,22 +162,23 @@ impl RevocationRegistryId {
         rev_reg_type: &str,
         tag: &str,
     ) -> RevocationRegistryId {
-        let id = RevocationRegistryId(format!(
+        let id = format!(
             "{}{}{}{}{}{}{}{}{}",
             did.0,
             DELIMITER,
-            REV_REG_DEG_MARKER,
+            Self::MARKER,
             DELIMITER,
             cred_def_id.0,
             DELIMITER,
             rev_reg_type,
             DELIMITER,
             tag
-        ));
-        match did.get_method() {
-            Some(method) => RevocationRegistryId(qualifier::qualify(&id.0, Self::PREFIX, &method)),
-            None => id,
-        }
+        );
+        Self::from(qualifier::combine(
+            Self::PREFIX,
+            did.get_method(),
+            id.as_str(),
+        ))
     }
 
     pub fn parts(&self) -> Option<(DidValue, CredentialDefinitionId, String, String)> {
@@ -174,43 +192,31 @@ impl RevocationRegistryId {
             None => None,
         }
     }
+}
 
-    pub fn to_unqualified(&self) -> RevocationRegistryId {
-        match self.parts() {
-            Some((did, cred_def_id, rev_reg_type, tag)) => RevocationRegistryId::new(
-                &did.to_unqualified(),
-                &cred_def_id.to_unqualified(),
-                &rev_reg_type,
-                &tag,
-            ),
-            None => self.clone(),
-        }
+impl Validatable for RevocationRegistryId {
+    fn validate(&self) -> Result<(), ValidationError> {
+        self.parts().ok_or(invalid!(
+            "Revocation Registry Id validation failed: {:?}, doesn't match pattern",
+            self.0
+        ))?;
+        Ok(())
     }
 }
 
 impl Validatable for RevocationRegistryConfig {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         if let Some(num_) = self.max_cred_num {
             if num_ == 0 {
-                return Err(input_err("RevocationRegistryConfig validation failed: `max_cred_num` must be greater than 0"));
+                return Err(invalid!("RevocationRegistryConfig validation failed: `max_cred_num` must be greater than 0"));
             }
         }
         Ok(())
     }
 }
 
-impl Validatable for RevocationRegistryId {
-    fn validate(&self) -> IndyResult<()> {
-        self.parts().ok_or(input_err(format!(
-            "Revocation Registry Id validation failed: {:?}, doesn't match pattern",
-            self.0
-        )))?;
-        Ok(())
-    }
-}
-
 impl Validatable for RevocationRegistryDefinition {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         match self {
             RevocationRegistryDefinition::RevocationRegistryDefinitionV1(revoc_reg_def) => {
                 revoc_reg_def.id.validate()?;

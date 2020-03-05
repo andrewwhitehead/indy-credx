@@ -4,8 +4,8 @@ use ursa::cl::{
 };
 
 use crate::common::did::DidValue;
-use crate::common::error::prelude::*;
-use crate::utils::validation::Validatable;
+use crate::utils::qualifier::Qualifiable;
+use crate::utils::validation::{Validatable, ValidationError};
 
 use super::credential_definition::CredentialDefinitionId;
 
@@ -38,7 +38,7 @@ impl CredentialRequest {
 }
 
 impl Validatable for CredentialRequest {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         self.cred_def_id.validate()?;
         self.prover_did.validate()?;
         Ok(())

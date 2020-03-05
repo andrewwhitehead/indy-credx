@@ -4,7 +4,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from time import perf_counter
 
-os.environ["RUST_LOG"] = "debug"
+os.environ.setdefault("RUST_LOG", "debug")
 
 from indy_credx_py import (  # noqa: E402
     create_credential,
@@ -26,14 +26,14 @@ schema.seq_no = 15
 print("schema", schema.schema_id, schema)
 
 (cred_def, cred_def_pk, cred_def_cp) = create_credential_definition(
-    origin_did, schema, None, json.dumps({"support_revocation": True})
+    origin_did, schema, "CL", None, json.dumps({"support_revocation": True})
 )
 print("cred def", cred_def)
 print("cred def private key", cred_def_pk)
 print("cred def correctness proof", cred_def_cp)
 
 (rev_reg_def, rev_reg, rev_key) = create_revocation_registry(
-    origin_did, cred_def, None, 100, "CL_ACCUM", "ISSUANCE_BY_DEFAULT"
+    origin_did, cred_def, "CL_ACCUM", None, 100, "ISSUANCE_BY_DEFAULT"
 )
 print(rev_reg_def, rev_reg.to_json(), rev_key.to_json())
 

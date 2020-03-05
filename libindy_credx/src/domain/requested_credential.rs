@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use crate::common::error::prelude::*;
-use crate::utils::validation::Validatable;
+use crate::utils::validation::{Validatable, ValidationError};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RequestedCredentials {
@@ -24,12 +23,14 @@ pub struct ProvingCredentialKey {
 }
 
 impl Validatable for RequestedCredentials {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         if self.self_attested_attributes.is_empty()
             && self.requested_attributes.is_empty()
             && self.requested_predicates.is_empty()
         {
-            return Err(input_err("Requested Credentials validation failed: `self_attested_attributes` and `requested_attributes` and `requested_predicates` are empty"));
+            return Err(invalid!(
+                "Requested Credentials validation failed: `self_attested_attributes` and `requested_attributes` and `requested_predicates` are empty"
+            ));
         }
         Ok(())
     }

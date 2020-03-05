@@ -3,8 +3,7 @@ use ursa::cl::{RevocationRegistry, Witness};
 
 use named_type::NamedType;
 
-use crate::common::error::prelude::*;
-use crate::utils::validation::Validatable;
+use crate::utils::validation::{Validatable, ValidationError};
 
 #[derive(Clone, Debug, Serialize, Deserialize, NamedType)]
 pub struct RevocationState {
@@ -14,9 +13,9 @@ pub struct RevocationState {
 }
 
 impl Validatable for RevocationState {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         if self.timestamp == 0 {
-            return Err(input_err(
+            return Err(invalid!(
                 "RevocationState validation failed: `timestamp` must be greater than 0",
             ));
         }

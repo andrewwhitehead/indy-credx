@@ -24,6 +24,7 @@ use crate::domain::revocation_registry_delta::{
 use crate::domain::schema::{AttributeNames, Schema, SchemaId, SchemaV1};
 use crate::services::helpers::*;
 use crate::utils::base58::ToBase58;
+use crate::utils::qualifier::Qualifiable;
 use crate::utils::validation::Validatable;
 
 use super::{
@@ -56,10 +57,41 @@ impl Issuer {
         Ok(Schema::SchemaV1(schema))
     }
 
+    pub fn make_credential_definition_id(
+        origin_did: &DidValue,
+        schema_id: &SchemaId,
+        schema_seq_no: Option<u32>,
+        tag: &str,
+        signature_type: SignatureType,
+    ) -> IndyResult<(CredentialDefinitionId, SchemaId)> {
+        let schema_id = match (origin_did.get_method(), schema_id.get_method()) {
+            (None, Some(_)) => {
+                return Err(input_err(
+                    "Cannot use an unqualified Origin DID with fully qualified Schema ID",
+                ));
+            }
+            (method, _) => schema_id.default_method(method),
+        };
+        let schema_infix_id = schema_seq_no
+            .map(|n| SchemaId(n.to_string()))
+            .unwrap_or(SchemaId(schema_id.0.clone()));
+
+        Ok((
+            CredentialDefinitionId::new(
+                origin_did,
+                &schema_infix_id,
+                &signature_type.to_str(),
+                tag,
+            ),
+            schema_id,
+        ))
+    }
+
     pub fn new_credential_definition(
         origin_did: &DidValue,
         schema: &Schema,
         tag: &str,
+        signature_type: SignatureType,
         config: CredentialDefinitionConfig,
     ) -> IndyResult<(
         CredentialDefinition,
@@ -75,31 +107,16 @@ impl Issuer {
         let schema = match schema {
             Schema::SchemaV1(s) => s,
         };
+        let (cred_def_id, schema_id) = Self::make_credential_definition_id(
+            origin_did,
+            &schema.id,
+            schema.seq_no,
+            tag,
+            signature_type,
+        )?;
+
         let credential_schema = build_credential_schema(&schema.attr_names.0)?;
         let non_credential_schema = build_non_credential_schema()?;
-
-        let schema_id = match (origin_did.get_method(), schema.id.get_method()) {
-            (None, Some(_)) => {
-                return Err(input_err(
-                    "Cannot use an unqualified Origin DID with fully qualified Schema ID",
-                ));
-            }
-            (Some(prefix_), None) => schema.id.qualify(&prefix_),
-            _ => schema.id.clone(),
-        };
-        let schema_seq_no_id = schema
-            .seq_no
-            .map(|n| SchemaId(n.to_string()))
-            .unwrap_or(SchemaId(schema_id.0.clone()));
-
-        let signature_type = config.signature_type.unwrap_or(SignatureType::CL);
-
-        let cred_def_id = CredentialDefinitionId::new(
-            origin_did,
-            &schema_seq_no_id,
-            &signature_type.to_str(),
-            tag,
-        );
 
         let (credential_public_key, credential_private_key, credential_key_correctness_proof) =
             CryptoIssuer::new_credential_def(
@@ -132,29 +149,15 @@ impl Issuer {
         ))
     }
 
-    pub fn new_revocation_registry<TW>(
+    pub fn make_revocation_registry_id(
         origin_did: &DidValue,
         cred_def: &CredentialDefinition,
         tag: &str,
-        max_cred_num: u32,
-        tails_writer: &mut TW,
-        rev_reg_type: Option<RegistryType>,
-        issuance_type: Option<IssuanceType>,
-    ) -> IndyResult<(
-        RevocationRegistryDefinition,
-        RevocationRegistry,
-        RevocationKeyPrivate,
-    )>
-    where
-        TW: TailsWriter,
-    {
-        trace!("new_revocation_registry >>> origin_did: {:?}, cred_def: {:?}, tag: {:?}, max_cred_num: {:?}, rev_reg_type: {:?}, issuance_type: {:?}",
-               origin_did, cred_def, tag, max_cred_num, rev_reg_type, issuance_type);
-
+        rev_reg_type: RegistryType,
+    ) -> IndyResult<RevocationRegistryId> {
         let cred_def = match cred_def {
             CredentialDefinition::CredentialDefinitionV1(c) => c,
         };
-        let credential_pub_key = cred_def.get_public_key()?;
 
         let origin_did = match (origin_did.get_method(), cred_def.id.get_method()) {
             (None, Some(_)) => {
@@ -166,14 +169,40 @@ impl Issuer {
             _ => origin_did,
         };
 
-        let rev_reg_type = rev_reg_type.unwrap_or(RegistryType::CL_ACCUM);
-        let issuance_type = issuance_type.unwrap_or(IssuanceType::ISSUANCE_BY_DEFAULT);
+        Ok(RevocationRegistryId::new(
+            &origin_did,
+            &cred_def.id,
+            &rev_reg_type.to_str(),
+            tag,
+        ))
+    }
 
-        // FIXME
-        // need a way to generate the ID ahead of time, so the caller can make sure
-        // that ID hasn't been stored in the wallet already
+    pub fn new_revocation_registry<TW>(
+        origin_did: &DidValue,
+        cred_def: &CredentialDefinition,
+        tag: &str,
+        rev_reg_type: RegistryType,
+        issuance_type: IssuanceType,
+        max_cred_num: u32,
+        tails_writer: &mut TW,
+    ) -> IndyResult<(
+        RevocationRegistryDefinition,
+        RevocationRegistry,
+        RevocationKeyPrivate,
+    )>
+    where
+        TW: TailsWriter,
+    {
+        trace!("new_revocation_registry >>> origin_did: {:?}, cred_def: {:?}, tag: {:?}, max_cred_num: {:?}, rev_reg_type: {:?}, issuance_type: {:?}",
+               origin_did, cred_def, tag, max_cred_num, rev_reg_type, issuance_type);
+
         let rev_reg_id =
-            RevocationRegistryId::new(&origin_did, &cred_def.id, &rev_reg_type.to_str(), tag);
+            Self::make_revocation_registry_id(origin_did, cred_def, tag, rev_reg_type)?;
+
+        let cred_def = match cred_def {
+            CredentialDefinition::CredentialDefinitionV1(c) => c,
+        };
+        let credential_pub_key = cred_def.get_public_key()?;
 
         let (revoc_key_pub, revoc_key_priv, revoc_registry, mut rev_tails_generator) =
             CryptoIssuer::new_revocation_registry_def(

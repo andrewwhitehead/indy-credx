@@ -3,20 +3,10 @@ use ursa::cl::{
     SubProofRequest,
 };
 
-use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
 
 use crate::domain::credential::AttributeValues;
-use crate::domain::credential_definition::CredentialDefinition;
-use crate::domain::credential_definition::CredentialDefinitionId;
-use crate::domain::credential_offer::CredentialOffer;
-use crate::domain::credential_request::CredentialRequest;
-use crate::domain::proof_request::ProofRequest;
 use crate::domain::proof_request::{AttributeInfo, NonRevocedInterval, PredicateInfo};
-use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
-use crate::domain::revocation_registry_definition::RevocationRegistryId;
-use crate::domain::schema::Schema;
-use crate::domain::schema::SchemaId;
 
 use std::collections::{HashMap, HashSet};
 
@@ -123,18 +113,6 @@ pub fn build_sub_proof_request(
     Ok(res)
 }
 
-pub fn parse_cred_rev_id(cred_rev_id: &str) -> IndyResult<u32> {
-    trace!("parse_cred_rev_id >>> cred_rev_id: {:?}", cred_rev_id);
-
-    let res = cred_rev_id
-        .parse::<u32>()
-        .with_input_err("Cannot parse CredentialRevocationId")?;
-
-    trace!("parse_cred_rev_id <<< res: {:?}", res);
-
-    Ok(res)
-}
-
 pub fn get_non_revoc_interval(
     global_interval: &Option<NonRevocedInterval>,
     local_interval: &Option<NonRevocedInterval>,
@@ -152,40 +130,6 @@ pub fn get_non_revoc_interval(
     trace!("get_non_revoc_interval <<< interval: {:?}", interval);
 
     interval
-}
-
-macro_rules! _id_to_unqualified {
-    ($entity:expr, $type_:ident) => {{
-        if $entity.starts_with($type_::PREFIX) {
-            return Ok($type_($entity.to_string()).to_unqualified().0);
-        }
-    }};
-}
-
-macro_rules! _object_to_unqualified {
-    ($entity:expr, $type_:ident) => {{
-        if let Ok(object) = ::serde_json::from_str::<$type_>(&$entity) {
-            return Ok(json!(object.to_unqualified()).to_string());
-        }
-    }};
-}
-
-pub fn to_unqualified(entity: &str) -> IndyResult<String> {
-    info!("to_unqualified >>> entity: {:?}", entity);
-
-    _id_to_unqualified!(entity, DidValue);
-    _id_to_unqualified!(entity, SchemaId);
-    _id_to_unqualified!(entity, CredentialDefinitionId);
-    _id_to_unqualified!(entity, RevocationRegistryId);
-
-    _object_to_unqualified!(entity, Schema);
-    _object_to_unqualified!(entity, CredentialDefinition);
-    _object_to_unqualified!(entity, RevocationRegistryDefinition);
-    _object_to_unqualified!(entity, CredentialOffer);
-    _object_to_unqualified!(entity, CredentialRequest);
-    _object_to_unqualified!(entity, ProofRequest);
-
-    Ok(entity.to_string())
 }
 
 #[cfg(test)]
@@ -215,70 +159,5 @@ mod tests {
     fn get_non_revoc_interval_for_none() {
         let res = get_non_revoc_interval(&None, &None);
         assert_eq!(None, res);
-    }
-
-    mod to_unqualified {
-        use super::*;
-
-        const DID_QUALIFIED: &str = "did:sov:NcYxiDXkpYi6ov5FcYDi1e";
-        const DID_UNQUALIFIED: &str = "NcYxiDXkpYi6ov5FcYDi1e";
-        const SCHEMA_ID_QUALIFIED: &str = "schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0";
-        const SCHEMA_ID_UNQUALIFIED: &str = "NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0";
-        const CRED_DEF_ID_QUALIFIED: &str = "creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag";
-        const CRED_DEF_ID_UNQUALIFIED: &str =
-            "NcYxiDXkpYi6ov5FcYDi1e:3:CL:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag";
-        const REV_REG_ID_QUALIFIED: &str = "revreg:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:4:creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag:CL_ACCUM:TAG_1";
-        const REV_REG_ID_UNQUALIFIED: &str = "NcYxiDXkpYi6ov5FcYDi1e:4:NcYxiDXkpYi6ov5FcYDi1e:3:CL:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag:CL_ACCUM:TAG_1";
-        const SCHEMA_ID_WITH_SPACES_QUALIFIED: &str =
-            "schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:Passport Schema:1.0";
-        const SCHEMA_ID_WITH_SPACES_UNQUALIFIED: &str =
-            "NcYxiDXkpYi6ov5FcYDi1e:2:Passport Schema:1.0";
-
-        #[test]
-        fn test_to_unqualified() {
-            // DID
-            assert_eq!(DID_UNQUALIFIED, to_unqualified(DID_QUALIFIED).unwrap());
-            assert_eq!(DID_UNQUALIFIED, to_unqualified(DID_UNQUALIFIED).unwrap());
-
-            // SchemaId
-            assert_eq!(
-                SCHEMA_ID_UNQUALIFIED,
-                to_unqualified(SCHEMA_ID_QUALIFIED).unwrap()
-            );
-            assert_eq!(
-                SCHEMA_ID_UNQUALIFIED,
-                to_unqualified(SCHEMA_ID_UNQUALIFIED).unwrap()
-            );
-
-            // SchemaId
-            assert_eq!(
-                SCHEMA_ID_WITH_SPACES_UNQUALIFIED,
-                to_unqualified(SCHEMA_ID_WITH_SPACES_QUALIFIED).unwrap()
-            );
-            assert_eq!(
-                SCHEMA_ID_WITH_SPACES_UNQUALIFIED,
-                to_unqualified(SCHEMA_ID_WITH_SPACES_UNQUALIFIED).unwrap()
-            );
-
-            // Credential Definition Id
-            assert_eq!(
-                CRED_DEF_ID_UNQUALIFIED,
-                to_unqualified(CRED_DEF_ID_QUALIFIED).unwrap()
-            );
-            assert_eq!(
-                CRED_DEF_ID_UNQUALIFIED,
-                to_unqualified(CRED_DEF_ID_UNQUALIFIED).unwrap()
-            );
-
-            // Revocation Registry Id
-            assert_eq!(
-                REV_REG_ID_UNQUALIFIED,
-                to_unqualified(REV_REG_ID_QUALIFIED).unwrap()
-            );
-            assert_eq!(
-                REV_REG_ID_UNQUALIFIED,
-                to_unqualified(REV_REG_ID_UNQUALIFIED).unwrap()
-            );
-        }
     }
 }

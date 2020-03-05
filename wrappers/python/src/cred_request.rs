@@ -6,6 +6,7 @@ use pyo3::wrap_pyfunction;
 use indy_credx::common::did::DidValue;
 use indy_credx::domain::credential_request::{CredentialRequest, CredentialRequestMetadata};
 use indy_credx::services::prover::Prover;
+use indy_credx::utils::validation::Validatable;
 
 use crate::cred_def::PyCredentialDefinition;
 use crate::cred_offer::PyCredentialOffer;
@@ -99,24 +100,24 @@ impl std::ops::Deref for PyCredentialRequestMetadata {
 /// Creates a new credential request
 fn create_credential_request(
     py: Python,
-    prover_did: &PyString,
+    prover_did: String,
     cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
     master_secret: PyAcceptBufferArg<PyMasterSecret>,
-    master_secret_id: &PyString,
+    master_secret_id: String,
     cred_offer: PyAcceptJsonArg<PyCredentialOffer>,
 ) -> PyResult<PyObject> {
-    let prover_did = prover_did.to_string()?.to_string();
+    let prover_did = DidValue(prover_did);
+    prover_did.validate().map_py_err()?;
     let master_secret = &master_secret.extract_json(py)?;
-    let master_secret_id = master_secret_id.to_string()?.to_string();
 
     let (request, metadata) = py
         .allow_threads(move || {
             Prover::new_credential_request(
-                &DidValue(prover_did),
-                &cred_def.inner,
+                &prover_did,
+                &cred_def,
                 &master_secret,
                 master_secret_id.as_str(),
-                &cred_offer.inner,
+                &cred_offer,
             )
         })
         .map_py_err()?;

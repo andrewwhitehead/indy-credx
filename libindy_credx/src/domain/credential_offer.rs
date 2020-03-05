@@ -3,8 +3,8 @@ use ursa::cl::{CredentialKeyCorrectnessProof, Nonce};
 use super::credential_definition::CredentialDefinitionId;
 use super::schema::SchemaId;
 
-use crate::common::error::prelude::*;
-use crate::utils::validation::Validatable;
+use crate::utils::qualifier::Qualifiable;
+use crate::utils::validation::{Validatable, ValidationError};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CredentialOffer {
@@ -18,11 +18,7 @@ pub struct CredentialOffer {
 
 impl CredentialOffer {
     pub fn to_unqualified(self) -> CredentialOffer {
-        let method_name = if self.cred_def_id.is_fully_qualified() {
-            self.cred_def_id.get_method()
-        } else {
-            None
-        };
+        let method_name = self.cred_def_id.get_method().map(str::to_owned);
         CredentialOffer {
             method_name,
             schema_id: self.schema_id.to_unqualified(),
@@ -34,7 +30,7 @@ impl CredentialOffer {
 }
 
 impl Validatable for CredentialOffer {
-    fn validate(&self) -> IndyResult<()> {
+    fn validate(&self) -> Result<(), ValidationError> {
         self.schema_id.validate()?;
         self.cred_def_id.validate()?;
         Ok(())
