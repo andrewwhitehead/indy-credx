@@ -11,9 +11,9 @@ use crate::utils::validation::{Validatable, ValidationError};
 use crate::utils::wql::Query;
 
 use super::credential::Credential;
-use super::credential_definition::CredentialDefinitionId;
-use super::revocation_registry_definition::RevocationRegistryId;
-use super::schema::SchemaId;
+use crate::identifiers::cred_def::CredentialDefinitionId;
+use crate::identifiers::rev_reg::RevocationRegistryId;
+use crate::identifiers::schema::SchemaId;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ProofRequestPayload {

@@ -5,7 +5,7 @@ use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
 use crate::domain::credential::{AttributeValues, Credential};
 use crate::domain::credential_attr_tag_policy::CredentialAttrTagPolicy;
-use crate::domain::credential_definition::{CredentialDefinition, CredentialDefinitionId};
+use crate::domain::credential_definition::CredentialDefinition;
 use crate::domain::credential_offer::CredentialOffer;
 use crate::domain::credential_request::{CredentialRequest, CredentialRequestMetadata};
 use crate::domain::proof::{
@@ -20,7 +20,9 @@ use crate::domain::requested_credential::ProvingCredentialKey;
 use crate::domain::requested_credential::RequestedCredentials;
 use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
 use crate::domain::revocation_state::RevocationState;
-use crate::domain::schema::{Schema, SchemaId};
+use crate::domain::schema::Schema;
+use crate::identifiers::cred_def::CredentialDefinitionId;
+use crate::identifiers::schema::SchemaId;
 use crate::services::helpers::*;
 use crate::utils::qualifier::Qualifiable;
 use crate::utils::wql::Query;
@@ -809,7 +811,7 @@ mod tests {
 
     mod build_credential_tags {
         use super::*;
-        use crate::domain::revocation_registry_definition::RevocationRegistryId;
+        use crate::identifiers::rev_reg::RevocationRegistryId;
 
         fn _credential() -> Credential {
             // note that encoding is not standardized by Indy except that 32-bit integers are encoded as themselves. IS-786

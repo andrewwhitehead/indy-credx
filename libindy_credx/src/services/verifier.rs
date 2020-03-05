@@ -3,18 +3,18 @@ use std::collections::{HashMap, HashSet};
 use regex::Regex;
 
 use crate::common::error::prelude::*;
-use crate::domain::credential_definition::{CredentialDefinition, CredentialDefinitionId};
+use crate::domain::credential_definition::CredentialDefinition;
 use crate::domain::proof::{Identifier, Proof, RequestedProof, RevealedAttributeInfo};
 use crate::domain::proof_request::{
     AttributeInfo, NonRevocedInterval, PredicateInfo, ProofRequest, ProofRequestPayload,
 };
 use crate::domain::revocation_registry::RevocationRegistry;
-use crate::domain::revocation_registry_definition::{
-    RevocationRegistryDefinition, RevocationRegistryId,
-};
-use crate::domain::schema::{Schema, SchemaId};
+use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
+use crate::domain::schema::Schema;
+use crate::identifiers::cred_def::CredentialDefinitionId;
+use crate::identifiers::rev_reg::RevocationRegistryId;
+use crate::identifiers::schema::SchemaId;
 use crate::services::helpers::*;
-
 use crate::utils::wql::Query;
 
 use super::{new_nonce, CredentialPublicKey, CryptoVerifier, Nonce};

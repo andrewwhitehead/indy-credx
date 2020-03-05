@@ -8,7 +8,7 @@ use crate::common::error::prelude::*;
 use crate::domain::credential::{Credential, CredentialValues};
 use crate::domain::credential_definition::{
     CredentialDefinition, CredentialDefinitionConfig, CredentialDefinitionData,
-    CredentialDefinitionId, CredentialDefinitionV1, SignatureType,
+    CredentialDefinitionV1, SignatureType,
 };
 use crate::domain::credential_offer::CredentialOffer;
 use crate::domain::credential_request::CredentialRequest;
@@ -16,12 +16,14 @@ use crate::domain::revocation_registry::{RevocationRegistry, RevocationRegistryV
 use crate::domain::revocation_registry_definition::{
     IssuanceType, RegistryType, RevocationRegistryDefinition, RevocationRegistryDefinitionV1,
     RevocationRegistryDefinitionValue, RevocationRegistryDefinitionValuePublicKeys,
-    RevocationRegistryId,
 };
 use crate::domain::revocation_registry_delta::{
     RevocationRegistryDelta, RevocationRegistryDeltaV1,
 };
-use crate::domain::schema::{AttributeNames, Schema, SchemaId, SchemaV1};
+use crate::domain::schema::{AttributeNames, Schema, SchemaV1};
+use crate::identifiers::cred_def::CredentialDefinitionId;
+use crate::identifiers::rev_reg::RevocationRegistryId;
+use crate::identifiers::schema::SchemaId;
 use crate::services::helpers::*;
 use crate::utils::base58::ToBase58;
 use crate::utils::qualifier::Qualifiable;

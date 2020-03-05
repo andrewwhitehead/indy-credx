@@ -4,10 +4,9 @@ use ursa::cl::{
 };
 
 use crate::common::did::DidValue;
+use crate::identifiers::cred_def::CredentialDefinitionId;
 use crate::utils::qualifier::Qualifiable;
 use crate::utils::validation::{Validatable, ValidationError};
-
-use super::credential_definition::CredentialDefinitionId;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CredentialRequest {

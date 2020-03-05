@@ -1,8 +1,7 @@
 use ursa::cl::{CredentialKeyCorrectnessProof, Nonce};
 
-use super::credential_definition::CredentialDefinitionId;
-use super::schema::SchemaId;
-
+use crate::identifiers::cred_def::CredentialDefinitionId;
+use crate::identifiers::schema::SchemaId;
 use crate::utils::qualifier::Qualifiable;
 use crate::utils::validation::{Validatable, ValidationError};
 

@@ -3,11 +3,10 @@ use std::collections::HashMap;
 use named_type::NamedType;
 use ursa::cl::{CredentialSignature, RevocationRegistry, SignatureCorrectnessProof, Witness};
 
+use crate::identifiers::cred_def::CredentialDefinitionId;
+use crate::identifiers::rev_reg::RevocationRegistryId;
+use crate::identifiers::schema::SchemaId;
 use crate::utils::validation::{Validatable, ValidationError};
-
-use super::credential_definition::CredentialDefinitionId;
-use super::revocation_registry_definition::RevocationRegistryId;
-use super::schema::SchemaId;
 
 #[derive(Debug, Deserialize, Serialize, NamedType)]
 pub struct Credential {

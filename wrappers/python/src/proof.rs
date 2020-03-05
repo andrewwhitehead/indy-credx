@@ -5,12 +5,12 @@ use pyo3::prelude::*;
 use pyo3::types::{PyString, PyType};
 use pyo3::wrap_pyfunction;
 
-use indy_credx::domain::credential_definition::CredentialDefinitionId;
 use indy_credx::domain::proof::Proof;
 use indy_credx::domain::proof_request::ProofRequest;
 use indy_credx::domain::requested_credential::RequestedCredentials;
-use indy_credx::domain::revocation_registry_definition::RevocationRegistryId;
-use indy_credx::domain::schema::SchemaId;
+use indy_credx::identifiers::cred_def::CredentialDefinitionId;
+use indy_credx::identifiers::rev_reg::RevocationRegistryId;
+use indy_credx::identifiers::schema::SchemaId;
 use indy_credx::services::new_nonce;
 use indy_credx::services::prover::Prover;
 use indy_credx::services::verifier::Verifier;
