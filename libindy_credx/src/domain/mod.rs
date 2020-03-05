@@ -12,5 +12,3 @@ pub mod revocation_registry_definition;
 pub mod revocation_registry_delta;
 pub mod revocation_state;
 pub mod schema;
-
-pub const DELIMITER: &str = ":";

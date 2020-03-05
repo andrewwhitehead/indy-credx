@@ -91,12 +91,6 @@ impl From<IndyErrorKind> for IndyError {
     }
 }
 
-impl From<crate::utils::qualifier::QualifierError> for IndyError {
-    fn from(err: crate::utils::qualifier::QualifierError) -> Self {
-        IndyError::new(IndyErrorKind::Input, Some(err.to_string()), None)
-    }
-}
-
 impl From<crate::utils::validation::ValidationError> for IndyError {
     fn from(err: crate::utils::validation::ValidationError) -> Self {
         IndyError::new(IndyErrorKind::Input, Some(err.to_string()), None)
