@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use ursa::cl::{RevocationRegistry, Witness};
 
-use named_type::NamedType;
-
 use crate::utils::validation::{Validatable, ValidationError};
 
-#[derive(Clone, Debug, Serialize, Deserialize, NamedType)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RevocationState {
     pub witness: Witness,
     pub rev_reg: RevocationRegistry,

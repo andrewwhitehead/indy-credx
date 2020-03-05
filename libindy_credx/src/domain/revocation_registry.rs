@@ -1,4 +1,3 @@
-use named_type::NamedType;
 use ursa::cl::RevocationRegistry as CryptoRevocationRegistry;
 
 use crate::utils::validation::Validatable;
@@ -8,7 +7,7 @@ pub struct RevocationRegistryV1 {
     pub value: CryptoRevocationRegistry,
 }
 
-#[derive(Debug, Serialize, Deserialize, NamedType)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "ver")]
 pub enum RevocationRegistry {
     #[serde(rename = "1.0")]

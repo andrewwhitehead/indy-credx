@@ -12,8 +12,6 @@ use crate::identifiers::schema::SchemaId;
 use crate::utils::qualifier::Qualifiable;
 use crate::utils::validation::{Validatable, ValidationError};
 
-use named_type::NamedType;
-
 pub const CL_SIGNATURE_TYPE: &str = "CL";
 
 #[derive(Deserialize, Debug, Serialize, PartialEq, Copy, Clone)]
@@ -105,7 +103,7 @@ impl Validatable for CredentialDefinitionV1 {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, NamedType)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "ver")]
 pub enum CredentialDefinition {
     #[serde(rename = "1.0")]
@@ -136,7 +134,7 @@ impl Validatable for CredentialDefinition {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, NamedType)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CredentialDefinitionPrivateKey {
     pub value: CredentialPrivateKey,
 }

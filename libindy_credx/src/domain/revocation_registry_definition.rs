@@ -1,6 +1,5 @@
 use ursa::cl::{RevocationKeyPrivate, RevocationKeyPublic};
 
-use named_type::NamedType;
 use serde::{de::IntoDeserializer, Deserialize};
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -87,7 +86,7 @@ pub struct RevocationRegistryDefinitionV1 {
     pub value: RevocationRegistryDefinitionValue,
 }
 
-#[derive(Debug, Serialize, Deserialize, NamedType)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "ver")]
 pub enum RevocationRegistryDefinition {
     #[serde(rename = "1.0")]
@@ -112,12 +111,12 @@ impl RevocationRegistryDefinition {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, NamedType)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RevocationRegistryDefinitionPrivate {
     pub value: RevocationKeyPrivate,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, NamedType)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RevocationRegistryInfo {
     pub id: RevocationRegistryId,
     pub curr_id: u32,

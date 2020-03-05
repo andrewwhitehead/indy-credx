@@ -263,8 +263,6 @@ dependencies = [
  "bs58",
  "lazy_static",
  "log",
- "named_type",
- "named_type_derive",
  "rand 0.7.3",
  "regex",
  "serde",
@@ -313,23 +311,6 @@ name = "memchr"
 version = "2.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3728d817d99e5ac407411fa471ff9800a778d88a24685968b36824eaf4bee400"
-
-[[package]]
-name = "named_type"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15a5dfeba8d99223c168c86dfecb0740a819843df03ae316147224d3fd0396b9"
-
-[[package]]
-name = "named_type_derive"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6538e20c3892dcb2dad27130a96a77962d53009a4b33b257985a921b910fc0c2"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
 
 [[package]]
 name = "opaque-debug"

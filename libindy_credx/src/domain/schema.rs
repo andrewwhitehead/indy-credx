@@ -1,4 +1,3 @@
-use named_type::NamedType;
 use std::collections::HashSet;
 
 use crate::identifiers::schema::SchemaId;
@@ -42,7 +41,7 @@ impl Validatable for SchemaV1 {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, NamedType)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "ver")]
 pub enum Schema {
     #[serde(rename = "1.0")]
