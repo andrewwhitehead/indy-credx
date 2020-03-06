@@ -248,6 +248,7 @@ impl Issuer {
     }
 
     pub fn new_credential_offer(
+        schema_id: &SchemaId,
         cred_def: &CredentialDefinition,
         correctness_proof: &CredentialKeyCorrectnessProof,
     ) -> IndyResult<CredentialOffer> {
@@ -265,7 +266,7 @@ impl Issuer {
         )?;
 
         let credential_offer = CredentialOffer {
-            schema_id: cred_def.schema_id.clone(),
+            schema_id: schema_id.clone(),
             cred_def_id: cred_def.id.clone(),
             key_correctness_proof,
             nonce,

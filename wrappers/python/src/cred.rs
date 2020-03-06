@@ -16,7 +16,7 @@ use crate::error::PyIndyResult;
 use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
 
-#[pyclass(name=CredentialDefinition)]
+#[pyclass(name=Credential)]
 pub struct PyCredential {
     pub inner: Py<PySafeBuffer>,
 }

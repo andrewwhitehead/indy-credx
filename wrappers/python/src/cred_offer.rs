@@ -4,7 +4,9 @@ use pyo3::types::{PyString, PyType};
 use pyo3::wrap_pyfunction;
 
 use indy_credx::domain::credential_offer::CredentialOffer;
+use indy_credx::identifiers::schema::SchemaId;
 use indy_credx::services::issuer::Issuer;
+use indy_credx::utils::validation::Validatable;
 
 use crate::cred_def::{PyCredentialDefinition, PyCredentialKeyCorrectnessProof};
 use crate::error::PyIndyResult;
@@ -54,11 +56,14 @@ impl std::ops::Deref for PyCredentialOffer {
 #[pyfunction]
 /// Creates a new credential offer
 fn create_credential_offer(
+    schema_id: String,
     cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
     correctness_proof: PyAcceptJsonArg<PyCredentialKeyCorrectnessProof>,
 ) -> PyResult<PyCredentialOffer> {
-    let offer =
-        Issuer::new_credential_offer(&cred_def.inner, &correctness_proof.inner).map_py_err()?;
+    let schema_id = SchemaId(schema_id);
+    schema_id.validate().map_py_err()?;
+    let offer = Issuer::new_credential_offer(&schema_id, &cred_def.inner, &correctness_proof.inner)
+        .map_py_err()?;
     Ok(PyCredentialOffer::from(offer))
 }
 
