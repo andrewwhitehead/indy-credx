@@ -181,7 +181,7 @@ pub fn create_credential_definition(
         .allow_threads(move || {
             Issuer::new_credential_definition(
                 &origin_did,
-                &schema.inner,
+                &schema,
                 tag.as_str(),
                 signature_type,
                 config,

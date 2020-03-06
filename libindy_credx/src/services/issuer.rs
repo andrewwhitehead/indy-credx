@@ -85,7 +85,7 @@ impl Issuer {
                 &signature_type.to_str(),
                 tag,
             ),
-            schema_id,
+            schema_infix_id,
         ))
     }
 
