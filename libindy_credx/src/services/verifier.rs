@@ -46,7 +46,7 @@ impl Verifier {
         schemas: &HashMap<SchemaId, &Schema>,
         cred_defs: &HashMap<CredentialDefinitionId, &CredentialDefinition>,
         rev_reg_defs: &HashMap<RevocationRegistryId, &RevocationRegistryDefinition>,
-        rev_regs: &HashMap<RevocationRegistryId, HashMap<u64, RevocationRegistry>>,
+        rev_regs: &HashMap<RevocationRegistryId, HashMap<u64, &RevocationRegistry>>,
     ) -> IndyResult<bool> {
         trace!("verify >>> full_proof: {:?}, proof_req: {:?}, schemas: {:?}, cred_defs: {:?}, rev_reg_defs: {:?} rev_regs: {:?}",
                full_proof, proof_req, schemas, cred_defs, rev_reg_defs, rev_regs);

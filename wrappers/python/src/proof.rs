@@ -21,7 +21,7 @@ use crate::cred_def::PyCredentialDefinition;
 use crate::error::PyIndyResult;
 use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
-use crate::rev_reg::{PyRevocationRegistryDefinition, PyRevocationState};
+use crate::rev_reg::{PyRevocationRegistry, PyRevocationRegistryDefinition, PyRevocationState};
 use crate::schema::PySchema;
 
 #[pyclass(name=Proof)]
@@ -179,8 +179,8 @@ pub fn verify_proof(
     proof_req: PyAcceptJsonArg<PyProofRequest>,
     schemas: HashMap<String, PyAcceptJsonArg<PySchema>>,
     cred_defs: HashMap<String, PyAcceptJsonArg<PyCredentialDefinition>>,
-    rev_reg_defs: HashMap<String, PyAcceptJsonArg<PyRevocationRegistryDefinition>>,
-    // rev_regs
+    rev_reg_defs: Option<HashMap<String, PyAcceptJsonArg<PyRevocationRegistryDefinition>>>,
+    rev_regs: Option<HashMap<String, HashMap<u64, PyAcceptJsonArg<PyRevocationRegistry>>>>,
 ) -> PyResult<bool> {
     let proof = proof.extract_json(py)?;
     let schema_refs = schemas
@@ -191,10 +191,29 @@ pub fn verify_proof(
         .iter()
         .map(|(k, cdef)| (CredentialDefinitionId(k.clone()), &cdef.inner))
         .collect();
-    let rev_reg_def_refs = rev_reg_defs
-        .iter()
-        .map(|(k, rdef)| (RevocationRegistryId(k.clone()), &rdef.inner))
-        .collect();
+    let rev_reg_def_refs = if let Some(rev_reg_defs) = rev_reg_defs.as_ref() {
+        rev_reg_defs
+            .iter()
+            .map(|(k, rdef)| (RevocationRegistryId(k.clone()), &rdef.inner))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    let rev_reg_refs = if let Some(rev_regs) = rev_regs.as_ref() {
+        rev_regs
+            .iter()
+            .map(|(k, reg_map)| {
+                (RevocationRegistryId(k.clone()), {
+                    reg_map
+                        .into_iter()
+                        .map(|(ts, reg)| (*ts, &reg.inner))
+                        .collect()
+                })
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
     let verified = py
         .allow_threads(move || {
             Verifier::verify_proof(
@@ -203,7 +222,7 @@ pub fn verify_proof(
                 &schema_refs,
                 &cred_def_refs,
                 &rev_reg_def_refs,
-                &HashMap::new(),
+                &rev_reg_refs,
             )
         })
         .map_py_err()?;

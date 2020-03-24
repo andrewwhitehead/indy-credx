@@ -92,6 +92,9 @@ def make_and_prove_cred():
     )
     schemas = {schema.schema_id: schema}
     cred_defs = {cred_def.cred_def_id: cred_def}
+    rev_reg_defs = {rev_reg_def.rev_reg_def_id: rev_reg_def}
+    timestamp = int(time())
+    rev_regs = {rev_reg_def.rev_reg_def_id: {timestamp: rev_reg}}
 
     creds = {"test-cred-id": cred_revcd}
     proof_req = json.dumps(
@@ -99,13 +102,18 @@ def make_and_prove_cred():
             "name": "proof",
             "version": "1.0",
             "nonce": generate_nonce(),
-            "requested_attributes": {"reft": {"name": "one"}},
+            "requested_attributes": {
+                "reft": {
+                    "name": "one",
+                    "non_revoked": {"from": timestamp, "to": timestamp},
+                }
+            },
             "requested_predicates": {},
+            "non_revoked": {"from": timestamp, "to": timestamp},
             "ver": "1.0",
         }
     )
 
-    timestamp = int(time())
     print(cred_revcd.to_json())
     cred_rev_id = 1  # FIXME need accessor
 
@@ -126,12 +134,17 @@ def make_and_prove_cred():
             )
         ]
     }
+    print("rev state", rev_states[rev_reg_def.rev_reg_def_id][0].to_json())
 
     req_creds = json.dumps(
         {
             "self_attested_attributes": {},
             "requested_attributes": {
-                "reft": {"cred_id": "test-cred-id", "revealed": True}
+                "reft": {
+                    "cred_id": "test-cred-id",
+                    "revealed": True,
+                    "timestamp": timestamp,
+                }
             },
             "requested_predicates": {},
         }
@@ -140,9 +153,12 @@ def make_and_prove_cred():
     proof = create_proof(
         proof_req, creds, req_creds, master_secret, schemas, cred_defs, rev_states
     )
-    print("proof:", proof)
+    print("proof:", proof.to_json())
 
-    print("verified:", verify_proof(proof, proof_req, schemas, cred_defs, dict()))
+    print(
+        "verified:",
+        verify_proof(proof, proof_req, schemas, cred_defs, rev_reg_defs, rev_regs),
+    )
 
     return cred
 
