@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::iter::FromIterator;
 
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
@@ -25,7 +26,7 @@ use crate::services::helpers::*;
 use crate::utils::qualifier::Qualifiable;
 use crate::utils::validation::Validatable;
 
-use super::tails::{TailsReader, TailsWriter};
+use super::tails::{TailsFileReader, TailsReader, TailsWriter};
 use super::{
     new_nonce, CredentialKeyCorrectnessProof, CredentialPrivateKey, CryptoIssuer,
     CryptoRevocationRegistryDelta, RevocationKeyPrivate, Witness,
@@ -202,12 +203,10 @@ impl Issuer {
         };
         let credential_pub_key = cred_def.get_public_key()?;
 
+        // NOTE: registry is created with issuance_by_default: false, then updated later
+        // this avoids generating the tails twice and is significantly faster
         let (revoc_key_pub, revoc_key_priv, revoc_registry, mut rev_tails_generator) =
-            CryptoIssuer::new_revocation_registry_def(
-                &credential_pub_key,
-                max_cred_num,
-                issuance_type == IssuanceType::ISSUANCE_BY_DEFAULT,
-            )?;
+            CryptoIssuer::new_revocation_registry_def(&credential_pub_key, max_cred_num, false)?;
 
         let rev_keys_pub = RevocationRegistryDefinitionValuePublicKeys {
             accum_key: revoc_key_pub,
@@ -219,7 +218,7 @@ impl Issuer {
             max_cred_num,
             issuance_type,
             public_keys: rev_keys_pub,
-            tails_location,
+            tails_location: tails_location.clone(),
             tails_hash,
         };
 
@@ -237,10 +236,55 @@ impl Issuer {
             value: revoc_registry,
         });
 
+        // now update registry to reflect issuance-by-default
+        let revoc_reg = if issuance_type == IssuanceType::ISSUANCE_BY_DEFAULT {
+            let tails_reader = TailsFileReader::new(&tails_location);
+            let issued = HashSet::from_iter((1..=max_cred_num).into_iter());
+            let (reg, _delta) = Self::update_revocation_registry(
+                &revoc_reg_def,
+                &revoc_reg,
+                issued,
+                HashSet::new(),
+                &tails_reader,
+            )?;
+            reg
+        } else {
+            revoc_reg
+        };
+
         trace!("new_revocation_registry <<< revoc_reg_def: {:?}, revoc_reg: {:?}, revoc_key_priv: {:?}",
             revoc_reg_def, revoc_reg, secret!(&revoc_key_priv));
 
         Ok((revoc_reg_def, revoc_reg, revoc_key_priv))
+    }
+
+    pub fn update_revocation_registry(
+        rev_reg_def: &RevocationRegistryDefinition,
+        rev_reg: &RevocationRegistry,
+        issued: HashSet<u32>,
+        revoked: HashSet<u32>,
+        tails_reader: &TailsReader,
+    ) -> IndyResult<(RevocationRegistry, RevocationRegistryDelta)> {
+        let rev_reg_def = match rev_reg_def {
+            RevocationRegistryDefinition::RevocationRegistryDefinitionV1(v1) => v1,
+        };
+        let mut rev_reg = match rev_reg {
+            RevocationRegistry::RevocationRegistryV1(v1) => v1.value.clone(),
+        };
+        let max_cred_num = rev_reg_def.value.max_cred_num;
+        let delta = CryptoIssuer::update_revocation_registry(
+            &mut rev_reg,
+            max_cred_num,
+            issued,
+            revoked,
+            tails_reader,
+        )?;
+        Ok((
+            RevocationRegistry::RevocationRegistryV1(RevocationRegistryV1 { value: rev_reg }),
+            RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
+                value: delta,
+            }),
+        ))
     }
 
     pub fn new_credential_offer(
@@ -460,35 +504,6 @@ impl Issuer {
         trace!("recovery <<< rev_reg_delta {:?}", delta);
 
         Ok(delta)
-    }
-
-    pub fn update_revocation_registry(
-        rev_reg_def: &RevocationRegistryDefinition,
-        rev_reg: &RevocationRegistry,
-        issued: HashSet<u32>,
-        revoked: HashSet<u32>,
-        tails_reader: &TailsReader,
-    ) -> IndyResult<(RevocationRegistry, RevocationRegistryDelta)> {
-        let rev_reg_def = match rev_reg_def {
-            RevocationRegistryDefinition::RevocationRegistryDefinitionV1(v1) => v1,
-        };
-        let mut rev_reg = match rev_reg {
-            RevocationRegistry::RevocationRegistryV1(v1) => v1.value.clone(),
-        };
-        let max_cred_num = rev_reg_def.value.max_cred_num;
-        let delta = CryptoIssuer::update_revocation_registry(
-            &mut rev_reg,
-            max_cred_num,
-            issued,
-            revoked,
-            tails_reader,
-        )?;
-        Ok((
-            RevocationRegistry::RevocationRegistryV1(RevocationRegistryV1 { value: rev_reg }),
-            RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
-                value: delta,
-            }),
-        ))
     }
 }
 
