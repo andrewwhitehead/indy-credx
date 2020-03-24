@@ -18,7 +18,7 @@ from indy_credx_py import (  # noqa: E402
     create_schema,
     generate_nonce,
     process_credential,
-    update_revocation_registry,
+    # update_revocation_registry,
     verify_proof,
 )
 
@@ -34,10 +34,20 @@ print("cred def", cred_def)
 print("cred def private key", cred_def_pk)
 print("cred def correctness proof", cred_def_cp)
 
-(rev_reg_def, rev_reg, rev_key) = create_revocation_registry(
-    origin_did, cred_def, "CL_ACCUM", None, 10, "ISSUANCE_BY_DEFAULT", None
-)
-print(rev_reg_def, rev_reg.to_json(), rev_key.to_json())
+if 0:
+    reps = 5
+    start = perf_counter()
+    for i in range(reps):
+        (rev_reg_def, rev_reg, rev_init_delta, rev_key) = create_revocation_registry(
+            origin_did, cred_def, "CL_ACCUM", None, 10000, "ISSUANCE_BY_DEFAULT", None
+        )
+    print("avg duration", (perf_counter() - start) / reps)
+    raise SystemExit
+else:
+    (rev_reg_def, rev_reg, rev_init_delta, rev_key) = create_revocation_registry(
+        origin_did, cred_def, "CL_ACCUM", None, 1000, "ISSUANCE_BY_DEFAULT", None
+    )
+    print(rev_reg_def, rev_reg.to_json(), rev_key.to_json())
 
 cred_offer = create_credential_offer(schema.schema_id, cred_def, cred_def_cp)
 print(cred_offer)
@@ -100,15 +110,15 @@ def make_and_prove_cred():
     cred_rev_id = 1  # FIXME need accessor
 
     # generate a delta from the registry (not using ledger)
-    (_, rev_delta) = update_revocation_registry(
-        rev_reg_def, upd_rev_reg, (), (), rev_reg_def.tails_location
-    )
+    # (_, rev_delta) = update_revocation_registry(
+    #     rev_reg_def, upd_rev_reg, (), (), rev_reg_def.tails_location
+    # )
 
     rev_states = {
         rev_reg_def.rev_reg_def_id: [
             create_or_update_revocation_state(
                 rev_reg_def,
-                rev_delta,
+                rev_init_delta,
                 cred_rev_id,
                 timestamp,
                 rev_reg_def.tails_location,

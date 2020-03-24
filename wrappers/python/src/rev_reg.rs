@@ -280,6 +280,7 @@ fn create_revocation_registry(
 ) -> PyResult<(
     PyRevocationRegistryDefinition,
     PyRevocationRegistry,
+    PyRevocationRegistryDelta,
     PyRevocationPrivateKey,
 )> {
     let origin_did = DidValue(origin_did);
@@ -305,9 +306,11 @@ fn create_revocation_registry(
             )
         })
         .map_py_err_msg(|| "Error creating revocation registry")?; // FIXME combine error
+    let init_delta = PyRevocationRegistryDelta::from(rev_reg.initial_delta());
     Ok((
         PyRevocationRegistryDefinition::from(rev_reg_def),
         PyRevocationRegistry::from(rev_reg),
+        init_delta,
         PyRevocationPrivateKey::embed_json(py, &rev_private_key)?,
     ))
 }
