@@ -1,7 +1,4 @@
-use tempfile;
-
-use std::io::Write;
-use std::path::PathBuf;
+use std::collections::HashSet;
 
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
@@ -25,14 +22,13 @@ use crate::identifiers::cred_def::CredentialDefinitionId;
 use crate::identifiers::rev_reg::RevocationRegistryId;
 use crate::identifiers::schema::SchemaId;
 use crate::services::helpers::*;
-use crate::utils::base58::ToBase58;
 use crate::utils::qualifier::Qualifiable;
 use crate::utils::validation::Validatable;
 
+use super::tails::{TailsReader, TailsWriter};
 use super::{
     new_nonce, CredentialKeyCorrectnessProof, CredentialPrivateKey, CryptoIssuer,
-    CryptoRevocationRegistry, Digest, RevocationKeyPrivate, RevocationTailsAccessor,
-    RevocationTailsGenerator, Sha256,
+    CryptoRevocationRegistryDelta, RevocationKeyPrivate, Witness,
 };
 
 pub struct Issuer {}
@@ -277,70 +273,128 @@ impl Issuer {
         Ok(credential_offer)
     }
 
-    pub fn new_credential<RTA>(
+    pub fn new_credential(
         cred_def: &CredentialDefinition,
-        cred_priv_key: &CredentialPrivateKey,
+        cred_private_key: &CredentialPrivateKey,
         cred_offer: &CredentialOffer,
         cred_request: &CredentialRequest,
         cred_values: &CredentialValues,
-        revocation_config: Option<RevocationConfig<RTA>>,
-    ) -> IndyResult<(Credential, Option<RevocationRegistryDelta>)>
-    where
-        RTA: RevocationTailsAccessor,
-    {
-        trace!("new_credential >>> cred_def: {:?}, cred_priv_key: {:?}, cred_offer.nonce: {:?}, cred_request: {:?},\
+        revocation_config: Option<CredentialRevocationConfig>,
+    ) -> IndyResult<(
+        Credential,
+        Option<RevocationRegistry>,
+        Option<RevocationRegistryDelta>,
+    )> {
+        trace!("new_credential >>> cred_def: {:?}, cred_private_key: {:?}, cred_offer.nonce: {:?}, cred_request: {:?},\
                cred_values: {:?}, revocation_config: {:?}",
-               cred_def, secret!(&cred_priv_key), &cred_offer.nonce, &cred_request, secret!(&cred_values), revocation_config,
+               cred_def, secret!(&cred_private_key), &cred_offer.nonce, &cred_request, secret!(&cred_values), revocation_config,
                );
 
-        let cred_pub_key = match cred_def {
+        let cred_public_key = match cred_def {
             CredentialDefinition::CredentialDefinitionV1(cd) => cd.get_public_key()?,
         };
         let credential_values = build_credential_values(&cred_values.0, None)?;
 
-        let (credential_signature, signature_correctness_proof, rev_reg_delta) =
-            match revocation_config {
-                Some(revocation) => CryptoIssuer::sign_credential_with_revoc(
-                    &cred_request.prover_did.0,
-                    &cred_request.blinded_ms,
-                    &cred_request.blinded_ms_correctness_proof,
-                    &cred_offer.nonce,
-                    &cred_request.nonce,
-                    &credential_values,
-                    &cred_pub_key,
-                    &cred_priv_key,
-                    revocation.idx,
-                    revocation.reg_def.value.max_cred_num,
-                    revocation.reg_def.value.issuance_type.to_bool(),
-                    revocation.registry,
-                    revocation.private_key,
-                    revocation.tails_accessor,
-                )?,
-                None => {
-                    let (signature, correctness_proof) = CryptoIssuer::sign_credential(
+        let (
+            credential_signature,
+            signature_correctness_proof,
+            rev_reg_id,
+            rev_reg,
+            rev_reg_delta,
+            witness,
+        ) = match revocation_config {
+            Some(revocation) => {
+                let (rev_reg_def, reg_reg_id) = match revocation.reg_def {
+                    RevocationRegistryDefinition::RevocationRegistryDefinitionV1(v1) => {
+                        (&v1.value, v1.id.clone())
+                    }
+                };
+                let mut rev_reg = match revocation.registry {
+                    RevocationRegistry::RevocationRegistryV1(v1) => v1.value.clone(),
+                };
+                let (credential_signature, signature_correctness_proof, delta) =
+                    CryptoIssuer::sign_credential_with_revoc(
                         &cred_request.prover_did.0,
                         &cred_request.blinded_ms,
                         &cred_request.blinded_ms_correctness_proof,
                         &cred_offer.nonce,
                         &cred_request.nonce,
                         &credential_values,
-                        &cred_pub_key,
-                        &cred_priv_key,
+                        &cred_public_key,
+                        &cred_private_key,
+                        revocation.registry_idx,
+                        rev_reg_def.max_cred_num,
+                        rev_reg_def.issuance_type.to_bool(),
+                        &mut rev_reg,
+                        revocation.registry_key,
+                        &revocation.tails_reader,
                     )?;
-                    (signature, correctness_proof, None)
-                }
-            };
+
+                let cred_rev_reg_id = match cred_offer.method_name.as_ref() {
+                    Some(ref _method_name) => Some(reg_reg_id.to_unqualified()),
+                    _ => Some(reg_reg_id.clone()),
+                };
+                let witness = {
+                    let used = HashSet::new(); // FIXME HashSet::from_iter((0..revocation.registry_idx).into_iter());
+                    let (by_default, issued, revoked) = match rev_reg_def.issuance_type {
+                        IssuanceType::ISSUANCE_ON_DEMAND => (false, used, HashSet::new()),
+                        IssuanceType::ISSUANCE_BY_DEFAULT => (true, HashSet::new(), used),
+                    };
+
+                    let rev_reg_delta = CryptoRevocationRegistryDelta::from_parts(
+                        None, &rev_reg, &issued, &revoked,
+                    );
+                    Witness::new(
+                        revocation.registry_idx,
+                        rev_reg_def.max_cred_num,
+                        by_default,
+                        &rev_reg_delta,
+                        &revocation.tails_reader,
+                    )?
+                };
+                (
+                    credential_signature,
+                    signature_correctness_proof,
+                    cred_rev_reg_id,
+                    Some(rev_reg),
+                    delta,
+                    Some(witness),
+                )
+            }
+            None => {
+                let (signature, correctness_proof) = CryptoIssuer::sign_credential(
+                    &cred_request.prover_did.0,
+                    &cred_request.blinded_ms,
+                    &cred_request.blinded_ms_correctness_proof,
+                    &cred_offer.nonce,
+                    &cred_request.nonce,
+                    &credential_values,
+                    &cred_public_key,
+                    &cred_private_key,
+                )?;
+                (signature, correctness_proof, None, None, None, None)
+            }
+        };
 
         let credential = Credential {
             schema_id: cred_offer.schema_id.clone(),
             cred_def_id: cred_offer.cred_def_id.clone(),
-            rev_reg_id: None, //cred_rev_reg_id,
+            rev_reg_id,
             values: cred_values.clone(),
             signature: credential_signature,
             signature_correctness_proof,
-            rev_reg: None, // rev_reg.map(|r_reg| r_reg.value),
-            witness: None, // FIXME
+            rev_reg: rev_reg.clone(),
+            witness,
         };
+
+        let rev_reg = rev_reg.map(|reg| {
+            RevocationRegistry::RevocationRegistryV1(RevocationRegistryV1 { value: reg })
+        });
+        let rev_reg_delta = rev_reg_delta.map(|delta| {
+            RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
+                value: delta,
+            })
+        });
 
         trace!(
             "new_credential <<< credential {:?}, rev_reg_delta {:?}",
@@ -348,19 +402,16 @@ impl Issuer {
             rev_reg_delta
         );
 
-        Ok((credential, None))
+        Ok((credential, rev_reg, rev_reg_delta))
     }
 
-    pub fn revoke<RTA>(
+    pub fn revoke(
         &self,
-        rev_reg: &mut CryptoRevocationRegistry,
+        rev_reg: &RevocationRegistry,
         max_cred_num: u32,
         rev_idx: u32,
-        rev_tails_accessor: &RTA,
-    ) -> IndyResult<RevocationRegistryDelta>
-    where
-        RTA: RevocationTailsAccessor,
-    {
+        tails_reader: &TailsReader,
+    ) -> IndyResult<RevocationRegistryDelta> {
         trace!(
             "revoke >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
             rev_reg,
@@ -368,8 +419,11 @@ impl Issuer {
             secret!(&rev_idx)
         );
 
+        let mut rev_reg = match rev_reg {
+            RevocationRegistry::RevocationRegistryV1(v1) => v1.value.clone(),
+        };
         let rev_reg_delta =
-            CryptoIssuer::revoke_credential(rev_reg, max_cred_num, rev_idx, rev_tails_accessor)?;
+            CryptoIssuer::revoke_credential(&mut rev_reg, max_cred_num, rev_idx, tails_reader)?;
 
         let delta = RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
             value: rev_reg_delta,
@@ -380,16 +434,13 @@ impl Issuer {
     }
 
     #[allow(dead_code)]
-    pub fn recovery<RTA>(
+    pub fn recovery(
         &self,
-        rev_reg: &mut CryptoRevocationRegistry,
+        rev_reg: &RevocationRegistry,
         max_cred_num: u32,
         rev_idx: u32,
-        rev_tails_accessor: &RTA,
-    ) -> IndyResult<RevocationRegistryDelta>
-    where
-        RTA: RevocationTailsAccessor,
-    {
+        tails_reader: &TailsReader,
+    ) -> IndyResult<RevocationRegistryDelta> {
         trace!(
             "recovery >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
             rev_reg,
@@ -397,8 +448,11 @@ impl Issuer {
             secret!(&rev_idx)
         );
 
+        let mut rev_reg = match rev_reg {
+            RevocationRegistry::RevocationRegistryV1(v1) => v1.value.clone(),
+        };
         let rev_reg_delta =
-            CryptoIssuer::recovery_credential(rev_reg, max_cred_num, rev_idx, rev_tails_accessor)?;
+            CryptoIssuer::recovery_credential(&mut rev_reg, max_cred_num, rev_idx, tails_reader)?;
 
         let delta = RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
             value: rev_reg_delta,
@@ -407,75 +461,56 @@ impl Issuer {
 
         Ok(delta)
     }
+
+    pub fn update_revocation_registry(
+        rev_reg_def: &RevocationRegistryDefinition,
+        rev_reg: &RevocationRegistry,
+        issued: HashSet<u32>,
+        revoked: HashSet<u32>,
+        tails_reader: &TailsReader,
+    ) -> IndyResult<(RevocationRegistry, RevocationRegistryDelta)> {
+        let rev_reg_def = match rev_reg_def {
+            RevocationRegistryDefinition::RevocationRegistryDefinitionV1(v1) => v1,
+        };
+        let mut rev_reg = match rev_reg {
+            RevocationRegistry::RevocationRegistryV1(v1) => v1.value.clone(),
+        };
+        let max_cred_num = rev_reg_def.value.max_cred_num;
+        let delta = CryptoIssuer::update_revocation_registry(
+            &mut rev_reg,
+            max_cred_num,
+            issued,
+            revoked,
+            tails_reader,
+        )?;
+        Ok((
+            RevocationRegistry::RevocationRegistryV1(RevocationRegistryV1 { value: rev_reg }),
+            RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
+                value: delta,
+            }),
+        ))
+    }
 }
 
-pub struct RevocationConfig<'a, RTA>
-where
-    RTA: RevocationTailsAccessor,
-{
-    idx: u32,
-    reg_def: &'a RevocationRegistryDefinitionV1,
-    registry: &'a mut CryptoRevocationRegistry,
-    private_key: &'a RevocationKeyPrivate,
-    tails_accessor: &'a RTA,
+pub struct CredentialRevocationConfig<'a> {
+    pub reg_def: &'a RevocationRegistryDefinition,
+    pub registry: &'a RevocationRegistry,
+    pub registry_key: &'a RevocationKeyPrivate,
+    pub registry_idx: u32,
+    pub tails_reader: TailsReader,
 }
 
-impl<'a, RTA> std::fmt::Debug for RevocationConfig<'a, RTA>
-where
-    RTA: RevocationTailsAccessor,
-{
+impl<'a> std::fmt::Debug for CredentialRevocationConfig<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "RevocationConfig {{ idx: {}, reg_def: {:?}, registry: {:?}, private_key: {:?} }}",
-            secret!(&self.idx),
+            "CredentialRevocationConfig {{ reg_def: {:?}, registry: {:?}, key: {:?}, idx: {}, reader: {:?} }}",
             self.reg_def,
             self.registry,
-            secret!(self.private_key)
+            secret!(self.registry_key),
+            secret!(self.registry_idx),
+            self.tails_reader,
         )
-    }
-}
-
-pub trait TailsWriter {
-    fn write(&mut self, generator: &mut RevocationTailsGenerator) -> IndyResult<(String, String)>;
-}
-
-pub struct TailsFileWriter {
-    root_path: PathBuf,
-}
-
-impl TailsFileWriter {
-    pub fn new(root_path: Option<String>) -> Self {
-        Self {
-            root_path: root_path
-                .map(PathBuf::from)
-                .unwrap_or_else(|| std::env::temp_dir()),
-        }
-    }
-}
-
-impl TailsWriter for TailsFileWriter {
-    fn write(&mut self, generator: &mut RevocationTailsGenerator) -> IndyResult<(String, String)> {
-        let mut tempf = tempfile::NamedTempFile::new_in(self.root_path.clone())?;
-        let file = tempf.as_file_mut();
-        let mut hasher = Sha256::default();
-        let version = &[0u8, 2u8];
-        file.write(version)?;
-        hasher.input(version);
-        while let Some(tail) = generator.try_next()? {
-            let tail_bytes = tail.to_bytes()?;
-            file.write(tail_bytes.as_slice())?;
-            hasher.input(tail_bytes);
-        }
-        let hash = hasher.result().to_base58();
-        let path = tempf.path().with_file_name(hash.clone());
-        if let Err(err) = tempf.persist_noclobber(hash.clone()) {
-            return Err(err_msg(
-                IndyErrorKind::IOError,
-                format!("Error persisting tails file: {}", err),
-            ));
-        }
-        Ok((path.to_string_lossy().into_owned(), hash))
     }
 }
 

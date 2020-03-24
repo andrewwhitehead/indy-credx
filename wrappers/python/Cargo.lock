@@ -988,9 +988,8 @@ checksum = "63f18aa3b0e35fed5a0048f029558b1518095ffe2a0a31fb87c93dece93a4993"
 
 [[package]]
 name = "ursa"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf3a7f0c96ebad582aedb73595ebe9fcf51fd1c53c951f46dfaa823aa8c713e6"
+version = "0.3.4"
+source = "git+https://github.com/hyperledger/ursa?rev=e5276e9b81faeb4fec02026a270789f3c3f67fdf#e5276e9b81faeb4fec02026a270789f3c3f67fdf"
 dependencies = [
  "amcl",
  "arrayref",

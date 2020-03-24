@@ -2,21 +2,23 @@ import json
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
-from time import perf_counter
+from time import perf_counter, time
 
 os.environ.setdefault("RUST_LOG", "debug")
 
 from indy_credx_py import (  # noqa: E402
     create_credential,
-    create_schema,
     create_credential_definition,
     create_credential_offer,
     create_credential_request,
-    create_master_secret,
-    create_revocation_registry,
-    process_credential,
     create_proof,
+    create_master_secret,
+    create_or_update_revocation_state,
+    create_revocation_registry,
+    create_schema,
     generate_nonce,
+    process_credential,
+    update_revocation_registry,
     verify_proof,
 )
 
@@ -33,11 +35,11 @@ print("cred def private key", cred_def_pk)
 print("cred def correctness proof", cred_def_cp)
 
 (rev_reg_def, rev_reg, rev_key) = create_revocation_registry(
-    origin_did, cred_def, "CL_ACCUM", None, 100, "ISSUANCE_BY_DEFAULT"
+    origin_did, cred_def, "CL_ACCUM", None, 10, "ISSUANCE_BY_DEFAULT", None
 )
 print(rev_reg_def, rev_reg.to_json(), rev_key.to_json())
 
-cred_offer = create_credential_offer(cred_def, cred_def_cp)
+cred_offer = create_credential_offer(schema.schema_id, cred_def, cred_def_cp)
 print(cred_offer)
 
 master_secret = create_master_secret()
@@ -49,19 +51,35 @@ master_secret_id = "default"
 print(cred_req, cred_req_metadata)
 
 
-def make_cred():
+def make_cred(rev_idx: int):
     cred_values = json.dumps(
         {
             "one": {"raw": "oneval", "encoded": "1"},
             "two": {"raw": "twoval", "encoded": "2"},
         }
     )
-    return create_credential(cred_def, cred_def_pk, cred_offer, cred_req, cred_values)
+
+    print("tails", rev_reg_def.tails_location)
+
+    return create_credential(
+        cred_def,
+        cred_def_pk,
+        cred_offer,
+        cred_req,
+        cred_values,
+        rev_reg_def,
+        rev_reg,
+        rev_key,
+        rev_idx,
+        rev_reg_def.tails_location,
+    )
 
 
 def make_and_prove_cred():
-    cred = make_cred()
-    cred_revcd = process_credential(cred, cred_req_metadata, master_secret, cred_def)
+    cred, upd_rev_reg, delta = make_cred(1)
+    cred_revcd = process_credential(
+        cred, cred_req_metadata, master_secret, cred_def, rev_reg_def
+    )
     schemas = {schema.schema_id: schema}
     cred_defs = {cred_def.cred_def_id: cred_def}
 
@@ -76,6 +94,29 @@ def make_and_prove_cred():
             "ver": "1.0",
         }
     )
+
+    timestamp = int(time())
+    print(cred_revcd.to_json())
+    cred_rev_id = 1  # FIXME need accessor
+
+    # generate a delta from the registry (not using ledger)
+    (_, rev_delta) = update_revocation_registry(
+        rev_reg_def, upd_rev_reg, (), (), rev_reg_def.tails_location
+    )
+
+    rev_states = {
+        rev_reg_def.rev_reg_def_id: [
+            create_or_update_revocation_state(
+                rev_reg_def,
+                rev_delta,
+                cred_rev_id,
+                timestamp,
+                rev_reg_def.tails_location,
+                None,
+            )
+        ]
+    }
+
     req_creds = json.dumps(
         {
             "self_attested_attributes": {},
@@ -85,7 +126,10 @@ def make_and_prove_cred():
             "requested_predicates": {},
         }
     )
-    proof = create_proof(proof_req, creds, req_creds, master_secret, schemas, cred_defs)
+
+    proof = create_proof(
+        proof_req, creds, req_creds, master_secret, schemas, cred_defs, rev_states
+    )
     print("proof:", proof)
 
     print("verified:", verify_proof(proof, proof_req, schemas, cred_defs, dict()))

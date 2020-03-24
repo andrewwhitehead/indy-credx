@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use crate::common::did::DidValue;
 use crate::common::error::prelude::*;
 use crate::domain::credential::{AttributeValues, Credential};
-use crate::domain::credential_attr_tag_policy::CredentialAttrTagPolicy;
 use crate::domain::credential_definition::CredentialDefinition;
 use crate::domain::credential_offer::CredentialOffer;
 use crate::domain::credential_request::{CredentialRequest, CredentialRequestMetadata};
@@ -13,26 +12,24 @@ use crate::domain::proof::{
     RevealedAttributeInfo, SubProofReferent,
 };
 use crate::domain::proof_request::{
-    PredicateInfo, PredicateTypes, ProofRequest, ProofRequestExtraQuery, ProofRequestPayload,
-    ProofRequestsVersion, RequestedAttributeInfo, RequestedPredicateInfo,
+    ProofRequest, ProofRequestPayload, RequestedAttributeInfo, RequestedPredicateInfo,
 };
 use crate::domain::requested_credential::ProvingCredentialKey;
 use crate::domain::requested_credential::RequestedCredentials;
 use crate::domain::revocation_registry_definition::RevocationRegistryDefinition;
+use crate::domain::revocation_registry_delta::RevocationRegistryDelta;
 use crate::domain::revocation_state::RevocationState;
 use crate::domain::schema::Schema;
 use crate::identifiers::cred_def::CredentialDefinitionId;
 use crate::identifiers::schema::SchemaId;
 use crate::services::helpers::*;
 use crate::utils::qualifier::Qualifiable;
-use crate::utils::wql::Query;
 
+use super::tails::TailsReader;
 use super::{
-    new_nonce, CredentialPublicKey, CryptoIssuer, CryptoProver, CryptoVerifier, MasterSecret,
-    SubProofRequest,
+    new_nonce, CredentialPublicKey, CryptoIssuer, CryptoProver, CryptoRevocationRegistry,
+    CryptoVerifier, MasterSecret, SubProofRequest, Witness,
 };
-
-const ATTRIBUTE_EXISTENCE_MARKER: &str = "1";
 
 pub struct Prover {}
 
@@ -154,7 +151,7 @@ impl Prover {
         master_secret: &MasterSecret,
         schemas: &HashMap<SchemaId, &Schema>,
         cred_defs: &HashMap<CredentialDefinitionId, &CredentialDefinition>,
-        rev_states: &HashMap<String, HashMap<u64, &RevocationState>>,
+        rev_states: &HashMap<String, Vec<&RevocationState>>,
     ) -> IndyResult<Proof> {
         trace!("create_proof >>> credentials: {:?}, proof_req: {:?}, requested_credentials: {:?}, master_secret: {:?}, schemas: {:?}, cred_defs: {:?}, rev_states: {:?}",
                credentials, proof_req, requested_credentials, secret!(&master_secret), schemas, cred_defs, rev_states);
@@ -209,7 +206,7 @@ impl Prover {
                     .clone()
                     .ok_or_else(|| input_err("Revocation Registry Id not found"))?;
 
-                let rev_states_for_timestamp = rev_states
+                let cred_rev_states = rev_states
                     .get(&rev_reg_id.0)
                     .or(rev_states.get(cred_key.cred_id.as_str()))
                     .ok_or_else(|| {
@@ -219,12 +216,17 @@ impl Prover {
                         ))
                     })?;
 
-                Some(rev_states_for_timestamp.get(&timestamp).ok_or_else(|| {
-                    input_err(format!(
-                        "Revocation Info not provided for timestamp: {}",
-                        timestamp
-                    ))
-                })?)
+                Some(
+                    cred_rev_states
+                        .iter()
+                        .find(|state| state.timestamp == timestamp)
+                        .ok_or_else(|| {
+                            input_err(format!(
+                                "Revocation Info not provided for timestamp: {}",
+                                timestamp
+                            ))
+                        })?,
+                )
             } else {
                 None
             };
@@ -401,159 +403,6 @@ impl Prover {
         res
     }
 
-    pub fn build_credential_tags(
-        credential: &Credential,
-        catpol: Option<&CredentialAttrTagPolicy>,
-    ) -> IndyResult<HashMap<String, String>> {
-        trace!(
-            "build_credential_tags >>> credential: {:?}, catpol: {:?}",
-            secret!(credential),
-            catpol
-        );
-
-        let mut res: HashMap<String, String> = HashMap::new();
-
-        let (_, schema_issuer_did, schema_name, schema_version) =
-            credential.schema_id.parts().ok_or(err_msg(
-                IndyErrorKind::InvalidState,
-                format!(
-                    "Invalid Schema ID `{}`: wrong number of parts",
-                    credential.schema_id.0
-                ),
-            ))?;
-
-        let issuer_did = credential.cred_def_id.issuer_did().ok_or(err_msg(
-            IndyErrorKind::InvalidState,
-            format!(
-                "Invalid Credential Definition ID `{}`: wrong number of parts",
-                credential.cred_def_id.0
-            ),
-        ))?;
-
-        res.insert("schema_id".to_string(), credential.schema_id.0.to_string());
-        res.insert(
-            "schema_issuer_did".to_string(),
-            schema_issuer_did.0.to_string(),
-        );
-        res.insert("schema_name".to_string(), schema_name);
-        res.insert("schema_version".to_string(), schema_version);
-        res.insert("issuer_did".to_string(), issuer_did.0.to_string());
-        res.insert(
-            "cred_def_id".to_string(),
-            credential.cred_def_id.0.to_string(),
-        );
-        res.insert(
-            "rev_reg_id".to_string(),
-            credential
-                .rev_reg_id
-                .as_ref()
-                .map(|rev_reg_id| rev_reg_id.0.clone())
-                .unwrap_or_else(|| "None".to_string()),
-        );
-
-        if credential.cred_def_id.is_fully_qualified() {
-            res.insert(
-                Credential::add_extra_tag_suffix("schema_id"),
-                credential.schema_id.to_unqualified().0,
-            );
-            res.insert(
-                Credential::add_extra_tag_suffix("schema_issuer_did"),
-                schema_issuer_did.to_unqualified().0,
-            );
-            res.insert(
-                Credential::add_extra_tag_suffix("issuer_did"),
-                issuer_did.to_unqualified().0,
-            );
-            res.insert(
-                Credential::add_extra_tag_suffix("cred_def_id"),
-                credential.cred_def_id.to_unqualified().0,
-            );
-            res.insert(
-                Credential::add_extra_tag_suffix("rev_reg_id"),
-                credential
-                    .rev_reg_id
-                    .as_ref()
-                    .map(|rev_reg_id| rev_reg_id.to_unqualified().0.clone())
-                    .unwrap_or_else(|| "None".to_string()),
-            );
-        }
-
-        credential.values.0.iter().for_each(|(attr, values)| {
-            if catpol
-                .map(|cp| cp.is_taggable(attr.as_str()))
-                .unwrap_or(true)
-            {
-                // abstain for attrs policy marks untaggable
-                res.insert(
-                    format!("attr::{}::marker", attr_common_view(&attr)),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                );
-                res.insert(
-                    format!("attr::{}::value", attr_common_view(&attr)),
-                    values.raw.clone(),
-                );
-            }
-        });
-
-        trace!("build_credential_tags <<< res: {:?}", secret!(&res));
-
-        Ok(res)
-    }
-
-    pub fn attribute_satisfy_predicate(
-        &self,
-        predicate: &PredicateInfo,
-        attribute_value: &str,
-    ) -> IndyResult<bool> {
-        trace!(
-            "attribute_satisfy_predicate >>> predicate: {:?}, attribute_value: {:?}",
-            predicate,
-            secret!(attribute_value)
-        );
-
-        let res = match predicate.p_type {
-            PredicateTypes::GE => {
-                let attribute_value = attribute_value.parse::<i32>().map_input_err(|| {
-                    format!(
-                        "Credential attribute value \"{:?}\" is invalid",
-                        attribute_value
-                    )
-                })?;
-                Ok(attribute_value >= predicate.p_value)
-            }
-            PredicateTypes::GT => {
-                let attribute_value = attribute_value.parse::<i32>().map_input_err(|| {
-                    format!(
-                        "Credential attribute value \"{:?}\" is invalid",
-                        attribute_value
-                    )
-                })?;
-                Ok(attribute_value > predicate.p_value)
-            }
-            PredicateTypes::LE => {
-                let attribute_value = attribute_value.parse::<i32>().map_input_err(|| {
-                    format!(
-                        "Credential attribute value \"{:?}\" is invalid",
-                        attribute_value
-                    )
-                })?;
-                Ok(attribute_value <= predicate.p_value)
-            }
-            PredicateTypes::LT => {
-                let attribute_value = attribute_value.parse::<i32>().map_input_err(|| {
-                    format!(
-                        "Credential attribute value \"{:?}\" is invalid",
-                        attribute_value
-                    )
-                })?;
-                Ok(attribute_value < predicate.p_value)
-            }
-        };
-
-        trace!("attribute_satisfy_predicate <<< res: {:?}", res);
-        res
-    }
-
     fn _update_requested_proof(
         req_attrs_for_credential: Vec<RequestedAttributeInfo>,
         req_predicates_for_credential: Vec<RequestedPredicateInfo>,
@@ -676,111 +525,62 @@ impl Prover {
         Ok(sub_proof_request)
     }
 
-    pub fn extend_proof_request_restrictions(
-        &self,
-        version: &ProofRequestsVersion,
-        name: &Option<String>,
-        names: &Option<Vec<String>>,
-        referent: &str,
-        restrictions: &Option<Query>,
-        extra_query: &Option<&ProofRequestExtraQuery>,
-    ) -> IndyResult<Query> {
+    pub fn create_or_update_revocation_state(
+        tails_reader: TailsReader,
+        revoc_reg_def: &RevocationRegistryDefinition,
+        rev_reg_delta: &RevocationRegistryDelta,
+        rev_reg_idx: u32,
+        timestamp: u64,
+        rev_state: Option<RevocationState>,
+    ) -> IndyResult<RevocationState> {
         trace!(
-            "extend_proof_request_restrictions >> name: {:?}, names: {:?}",
-            name,
-            names
+            "create_or_update_revocation_state >>> , tails_reader: {:?}, revoc_reg_def: {:?}, \
+rev_reg_delta: {:?}, rev_reg_idx: {}, timestamp: {:?}, rev_state: {:?}",
+            tails_reader,
+            revoc_reg_def,
+            rev_reg_delta,
+            rev_reg_idx,
+            timestamp,
+            rev_state
         );
 
-        let mut queries: Vec<Query> = Vec::new();
-
-        let mut attr_queries: Vec<Query> = if let Some(names) = names
-            .as_ref()
-            .or(name.as_ref().map(|s| vec![s.clone()]).as_ref())
-        {
-            names
-                .iter()
-                .map(|name| {
-                    Query::Eq(
-                        format!("attr::{}::marker", &attr_common_view(name)),
-                        ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                    )
-                })
-                .collect()
-        } else {
-            return Err(input_err(
-                r#"Proof Request attribute restriction should contain "name" or "names" param"#,
-            ));
+        let revoc_reg_def = match revoc_reg_def {
+            RevocationRegistryDefinition::RevocationRegistryDefinitionV1(v1) => v1,
+        };
+        let rev_reg_delta = match rev_reg_delta {
+            RevocationRegistryDelta::RevocationRegistryDeltaV1(v1) => v1,
         };
 
-        if let Some(restrictions_) = restrictions.as_ref().and_then(|r| r.clean()) {
-            match version {
-                ProofRequestsVersion::V1 => {
-                    queries.push(Self::_double_restrictions(restrictions_.clone())?)
-                }
-                ProofRequestsVersion::V2 => queries.push(restrictions_.clone()),
-            };
-        }
+        let rev_state = match rev_state {
+            None => {
+                let witness = Witness::new(
+                    rev_reg_idx,
+                    revoc_reg_def.value.max_cred_num,
+                    revoc_reg_def.value.issuance_type.to_bool(),
+                    &rev_reg_delta.value,
+                    &tails_reader,
+                )?;
 
-        if let Some(extra_query_) = extra_query.as_ref().and_then(|query| query.get(referent)) {
-            queries.push(extra_query_.clone())
-        }
-
-        // put attr_queries last as this results in a better performing query with large datasets
-        // ref IS-1470
-        queries.append(&mut attr_queries);
-
-        Ok(Query::And(queries))
-    }
-
-    fn _double_restrictions(operator: Query) -> IndyResult<Query> {
-        Ok(match operator {
-            Query::Eq(tag_name, tag_value) => {
-                if Credential::QUALIFIABLE_TAGS.contains(&tag_name.as_str()) {
-                    Query::Or(vec![
-                        Query::Eq(tag_name.clone(), tag_value.clone()),
-                        Query::Eq(Credential::add_extra_tag_suffix(&tag_name), tag_value),
-                    ])
-                } else {
-                    Query::Eq(tag_name, tag_value)
+                RevocationState {
+                    witness,
+                    rev_reg: CryptoRevocationRegistry::from(rev_reg_delta.value.clone()),
+                    timestamp,
                 }
             }
-            Query::Neq(tag_name, tag_value) => {
-                if Credential::QUALIFIABLE_TAGS.contains(&tag_name.as_str()) {
-                    Query::And(vec![
-                        Query::Neq(tag_name.clone(), tag_value.clone()),
-                        Query::Neq(Credential::add_extra_tag_suffix(&tag_name), tag_value),
-                    ])
-                } else {
-                    Query::Neq(tag_name, tag_value)
-                }
+            Some(mut rev_state) => {
+                rev_state.witness.update(
+                    rev_reg_idx,
+                    revoc_reg_def.value.max_cred_num,
+                    &rev_reg_delta.value,
+                    &tails_reader,
+                )?;
+                rev_state.rev_reg = CryptoRevocationRegistry::from(rev_reg_delta.value.clone());
+                rev_state.timestamp = timestamp;
+                rev_state
             }
-            Query::In(tag_name, tag_values) => {
-                if Credential::QUALIFIABLE_TAGS.contains(&tag_name.as_str()) {
-                    Query::Or(vec![
-                        Query::In(tag_name.clone(), tag_values.clone()),
-                        Query::In(Credential::add_extra_tag_suffix(&&tag_name), tag_values),
-                    ])
-                } else {
-                    Query::In(tag_name, tag_values)
-                }
-            }
-            Query::And(operators) => Query::And(
-                operators
-                    .into_iter()
-                    .map(|op| Self::_double_restrictions(op))
-                    .collect::<IndyResult<Vec<Query>>>()?,
-            ),
-            Query::Or(operators) => Query::Or(
-                operators
-                    .into_iter()
-                    .map(|op| Self::_double_restrictions(op))
-                    .collect::<IndyResult<Vec<Query>>>()?,
-            ),
-            Query::Not(operator) => Query::Not(::std::boxed::Box::new(Self::_double_restrictions(
-                *operator,
-            )?)),
-            _ => return Err(input_err("unsupported operator")),
-        })
+        };
+
+        Ok(rev_state)
     }
 }
 
@@ -788,14 +588,7 @@ impl Prover {
 mod tests {
     use super::*;
 
-    const SCHEMA_ID: &str = "NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0";
-    const SCHEMA_ISSUER_DID: &str = "NcYxiDXkpYi6ov5FcYDi1e";
-    const SCHEMA_NAME: &str = "gvt";
-    const SCHEMA_VERSION: &str = "1.0";
-    const ISSUER_DID: &str = "NcYxiDXkpYi6ov5FcYDi1e";
-    const CRED_DEF_ID: &str = "NcYxiDXkpYi6ov5FcYDi1e:3:CL:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag";
-    const REV_REG_ID: &str = "NcYxiDXkpYi6ov5FcYDi1e:4:NcYxiDXkpYi6ov5FcYDi1e:3:CL:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag:CL_ACCUM:TAG_1";
-    const NO_REV_REG_ID: &str = "None";
+    use crate::domain::proof_request::PredicateTypes;
 
     macro_rules! hashmap {
         ($( $key: expr => $val: expr ),*) => {
@@ -806,185 +599,6 @@ mod tests {
                 )*
                 map
             }
-        }
-    }
-
-    mod build_credential_tags {
-        use super::*;
-        use crate::identifiers::rev_reg::RevocationRegistryId;
-
-        fn _credential() -> Credential {
-            // note that encoding is not standardized by Indy except that 32-bit integers are encoded as themselves. IS-786
-            // so Alex -> 12345 is an application choice while 25 -> 25 is not
-            let mut attr_values: HashMap<String, AttributeValues> = HashMap::new();
-            attr_values.insert(
-                "name".to_string(),
-                AttributeValues {
-                    raw: "Alex".to_string(),
-                    encoded: "12345".to_string(),
-                },
-            );
-            attr_values.insert(
-                "age".to_string(),
-                AttributeValues {
-                    raw: "25".to_string(),
-                    encoded: "25".to_string(),
-                },
-            );
-
-            serde_json::from_str::<Credential>(
-                &json!({
-                    "schema_id": SCHEMA_ID,
-                    "cred_def_id": CRED_DEF_ID,
-                    "values": attr_values,
-                    "signature": json!({
-                        "p_credential": json!({"m_2": "0","a": "0","e": "0","v": "0"})
-                    }),
-                    "signature_correctness_proof": json!({"se":"0", "c":"0"})
-                })
-                .to_string(),
-            )
-            .unwrap()
-        }
-
-        #[test]
-        fn build_credential_tags_works() {
-            let tags = Prover::build_credential_tags(&_credential(), None).unwrap();
-
-            let expected_tags: HashMap<String, String> = hashmap!(
-               "schema_id".to_string() => SCHEMA_ID.to_string(),
-               "schema_issuer_did".to_string() => SCHEMA_ISSUER_DID.to_string(),
-               "schema_name".to_string() => SCHEMA_NAME.to_string(),
-               "schema_version".to_string() => SCHEMA_VERSION.to_string(),
-               "issuer_did".to_string() => ISSUER_DID.to_string(),
-               "cred_def_id".to_string() => CRED_DEF_ID.to_string(),
-               "rev_reg_id".to_string() => NO_REV_REG_ID.to_string(),
-               "attr::name::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::name::value".to_string() => "Alex".to_string(),
-               "attr::age::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::age::value".to_string() => "25".to_string()
-            );
-
-            assert_eq!(expected_tags, tags)
-        }
-
-        #[test]
-        fn build_credential_tags_works_for_catpol() {
-            let catpol = CredentialAttrTagPolicy::from(vec![String::from("name")]);
-            let tags =
-                Prover::build_credential_tags(&_credential(), Some(catpol).as_ref()).unwrap();
-
-            let expected_tags: HashMap<String, String> = hashmap!(
-               "schema_id".to_string() => SCHEMA_ID.to_string(),
-               "schema_issuer_did".to_string() => SCHEMA_ISSUER_DID.to_string(),
-               "schema_name".to_string() => SCHEMA_NAME.to_string(),
-               "schema_version".to_string() => SCHEMA_VERSION.to_string(),
-               "issuer_did".to_string() => ISSUER_DID.to_string(),
-               "cred_def_id".to_string() => CRED_DEF_ID.to_string(),
-               "rev_reg_id".to_string() => NO_REV_REG_ID.to_string(),
-               "attr::name::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::name::value".to_string() => "Alex".to_string()
-            );
-
-            assert_eq!(expected_tags, tags)
-        }
-
-        #[test]
-        fn build_credential_tags_works_for_rev_reg_id() {
-            let mut credential = _credential();
-            credential.rev_reg_id = Some(RevocationRegistryId(REV_REG_ID.to_string()));
-            let tags = Prover::build_credential_tags(&credential, None).unwrap();
-
-            let expected_tags: HashMap<String, String> = hashmap!(
-               "schema_id".to_string() => SCHEMA_ID.to_string(),
-               "schema_issuer_did".to_string() => SCHEMA_ISSUER_DID.to_string(),
-               "schema_name".to_string() => SCHEMA_NAME.to_string(),
-               "schema_version".to_string() => SCHEMA_VERSION.to_string(),
-               "issuer_did".to_string() => ISSUER_DID.to_string(),
-               "cred_def_id".to_string() => CRED_DEF_ID.to_string(),
-               "rev_reg_id".to_string() => REV_REG_ID.to_string(),
-               "attr::name::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::name::value".to_string() => "Alex".to_string(),
-               "attr::age::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::age::value".to_string() => "25".to_string()
-            );
-
-            assert_eq!(expected_tags, tags)
-        }
-
-        #[test]
-        fn build_credential_tags_works_for_fully_qualified_ids() {
-            let schema_id = "schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0";
-            let issuer_did = "did:sov:NcYxiDXkpYi6ov5FcYDi1e";
-            let cred_def_id = "creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag";
-            let rev_reg_id = "revreg:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:4:creddef:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:3:CL:schema:sov:did:sov:NcYxiDXkpYi6ov5FcYDi1e:2:gvt:1.0:tag:CL_ACCUM:TAG_1";
-
-            let mut credential = _credential();
-            credential.schema_id = SchemaId(schema_id.to_string());
-            credential.cred_def_id = CredentialDefinitionId(cred_def_id.to_string());
-            credential.rev_reg_id = Some(RevocationRegistryId(rev_reg_id.to_string()));
-
-            let tags = Prover::build_credential_tags(&credential, None).unwrap();
-
-            let expected_tags: HashMap<String, String> = hashmap!(
-               "schema_id".to_string() => schema_id.to_string(),
-               "schema_id_short".to_string() => SCHEMA_ID.to_string(),
-               "schema_issuer_did".to_string() => issuer_did.to_string(),
-               "schema_issuer_did_short".to_string() => ISSUER_DID.to_string(),
-               "schema_name".to_string() => SCHEMA_NAME.to_string(),
-               "schema_version".to_string() => SCHEMA_VERSION.to_string(),
-               "issuer_did".to_string() => issuer_did.to_string(),
-               "issuer_did_short".to_string() => ISSUER_DID.to_string(),
-               "cred_def_id".to_string() => cred_def_id.to_string(),
-               "cred_def_id_short".to_string() => CRED_DEF_ID.to_string(),
-               "rev_reg_id".to_string() => rev_reg_id.to_string(),
-               "rev_reg_id_short".to_string() => REV_REG_ID.to_string(),
-               "attr::name::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::name::value".to_string() => "Alex".to_string(),
-               "attr::age::marker".to_string() => ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-               "attr::age::value".to_string() => "25".to_string()
-            );
-
-            assert_eq!(expected_tags, tags)
-        }
-    }
-
-    mod attribute_satisfy_predicate {
-        use super::*;
-
-        fn predicate_info() -> PredicateInfo {
-            PredicateInfo {
-                name: "age".to_string(),
-                p_type: PredicateTypes::GE,
-                p_value: 8,
-                restrictions: None,
-                non_revoked: None,
-            }
-        }
-
-        #[test]
-        fn attribute_satisfy_predicate_works() {
-            let ps = Prover::new();
-            let res = ps
-                .attribute_satisfy_predicate(&predicate_info(), "10")
-                .unwrap();
-            assert!(res);
-        }
-
-        #[test]
-        fn attribute_satisfy_predicate_works_for_false() {
-            let ps = Prover::new();
-            let res = ps
-                .attribute_satisfy_predicate(&predicate_info(), "5")
-                .unwrap();
-            assert!(!res);
-        }
-
-        #[test]
-        fn attribute_satisfy_predicate_works_for_invalid_attribute_value() {
-            let ps = Prover::new();
-            let res = ps.attribute_satisfy_predicate(&predicate_info(), "string");
-            assert_kind!(IndyErrorKind::Input, res);
         }
     }
 
@@ -1196,302 +810,6 @@ mod tests {
             )
             .unwrap();
             assert_eq!(_attr_values(), res);
-        }
-    }
-
-    mod extend_operator {
-        use super::*;
-
-        const QUALIFIABLE_TAG: &str = "issuer_did";
-        const NOT_QUALIFIABLE_TAG: &str = "name";
-        const VALUE: &str = "1";
-
-        #[test]
-        fn extend_operator_works_for_qualifiable_tag() {
-            let query = Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string());
-            let query = Prover::_double_restrictions(query).unwrap();
-
-            let expected_query = Query::Or(vec![
-                Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
-                Query::Eq(
-                    Credential::add_extra_tag_suffix(QUALIFIABLE_TAG),
-                    VALUE.to_string(),
-                ),
-            ]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn extend_operator_works_for_not_qualifiable_tag() {
-            let query = Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string());
-            let query = Prover::_double_restrictions(query).unwrap();
-
-            let expected_query = Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string());
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn extend_operator_works_for_qualifiable_tag_for_combination() {
-            let query = Query::And(vec![
-                Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
-                Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
-            ]);
-            let query = Prover::_double_restrictions(query).unwrap();
-
-            let expected_query = Query::And(vec![
-                Query::Or(vec![
-                    Query::Eq(QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
-                    Query::Eq(
-                        Credential::add_extra_tag_suffix(QUALIFIABLE_TAG),
-                        VALUE.to_string(),
-                    ),
-                ]),
-                Query::Eq(NOT_QUALIFIABLE_TAG.to_string(), VALUE.to_string()),
-            ]);
-
-            assert_eq!(expected_query, query);
-        }
-    }
-
-    mod extend_proof_request_restrictions {
-        use super::*;
-
-        const ATTR_NAME: &str = "name";
-        const ATTR_NAME_2: &str = "name_2";
-        const ATTR_REFERENT: &str = "attr_1";
-
-        fn _value(json: &str) -> serde_json::Value {
-            serde_json::from_str::<serde_json::Value>(json).unwrap()
-        }
-
-        #[test]
-        fn build_query_works() {
-            let ps = Prover::new();
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &Some(ATTR_NAME.to_string()),
-                    &None,
-                    ATTR_REFERENT,
-                    &None,
-                    &None,
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![Query::Eq(
-                "attr::name::marker".to_string(),
-                ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-            )]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn build_query_works_for_name() {
-            let ps = Prover::new();
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &None,
-                    &Some(vec![ATTR_NAME.to_string(), ATTR_NAME_2.to_string()]),
-                    ATTR_REFERENT,
-                    &None,
-                    &None,
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![
-                Query::Eq(
-                    "attr::name::marker".to_string(),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                ),
-                Query::Eq(
-                    "attr::name_2::marker".to_string(),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                ),
-            ]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn build_query_works_for_restriction() {
-            let ps = Prover::new();
-
-            let restriction = Query::And(vec![
-                Query::Eq("schema_id".to_string(), SCHEMA_ID.to_string()),
-                Query::Eq("cred_def_id".to_string(), CRED_DEF_ID.to_string()),
-            ]);
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &Some(ATTR_NAME.to_string()),
-                    &None,
-                    ATTR_REFERENT,
-                    &Some(restriction),
-                    &None,
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![
-                Query::And(vec![
-                    Query::Eq("schema_id".to_string(), SCHEMA_ID.to_string()),
-                    Query::Eq("cred_def_id".to_string(), CRED_DEF_ID.to_string()),
-                ]),
-                Query::Eq(
-                    "attr::name::marker".to_string(),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                ),
-            ]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn build_query_works_for_extra_query() {
-            let ps = Prover::new();
-
-            let extra_query: ProofRequestExtraQuery = hashmap!(
-                ATTR_REFERENT.to_string() => Query::Eq("name".to_string(), "Alex".to_string())
-            );
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &Some(ATTR_NAME.to_string()),
-                    &None,
-                    ATTR_REFERENT,
-                    &None,
-                    &Some(&extra_query),
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![
-                Query::Eq("name".to_string(), "Alex".to_string()),
-                Query::Eq(
-                    "attr::name::marker".to_string(),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                ),
-            ]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn build_query_works_for_mix_restriction_and_extra_query() {
-            let ps = Prover::new();
-
-            let restriction = Query::And(vec![
-                Query::Eq("schema_id".to_string(), SCHEMA_ID.to_string()),
-                Query::Eq("cred_def_id".to_string(), CRED_DEF_ID.to_string()),
-            ]);
-
-            let extra_query: ProofRequestExtraQuery = hashmap!(
-                ATTR_REFERENT.to_string() => Query::Eq("name".to_string(), "Alex".to_string())
-            );
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &Some(ATTR_NAME.to_string()),
-                    &None,
-                    ATTR_REFERENT,
-                    &Some(restriction),
-                    &Some(&extra_query),
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![
-                Query::And(vec![
-                    Query::Eq("schema_id".to_string(), SCHEMA_ID.to_string()),
-                    Query::Eq("cred_def_id".to_string(), CRED_DEF_ID.to_string()),
-                ]),
-                Query::Eq("name".to_string(), "Alex".to_string()),
-                Query::Eq(
-                    "attr::name::marker".to_string(),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                ),
-            ]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn build_query_works_for_extra_query_with_other_referent() {
-            let ps = Prover::new();
-
-            let extra_query: ProofRequestExtraQuery = hashmap!(
-                "other_attr_referent".to_string() => Query::Eq("name".to_string(), "Alex".to_string())
-            );
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &Some(ATTR_NAME.to_string()),
-                    &None,
-                    ATTR_REFERENT,
-                    &None,
-                    &Some(&extra_query),
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![Query::Eq(
-                "attr::name::marker".to_string(),
-                ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-            )]);
-
-            assert_eq!(expected_query, query);
-        }
-
-        #[test]
-        fn build_query_works_for_restriction_and_extra_query_contain_or_operator() {
-            let ps = Prover::new();
-
-            let restriction = Query::Or(vec![
-                Query::Eq("schema_id".to_string(), SCHEMA_ID.to_string()),
-                Query::Eq("schema_id".to_string(), "schema_id_2".to_string()),
-            ]);
-
-            let extra_query: ProofRequestExtraQuery = hashmap!(
-                ATTR_REFERENT.to_string() =>
-                    Query::Or(vec![
-                        Query::Eq("name".to_string(), "Alex".to_string()),
-                        Query::Eq("name".to_string(), "Alexander".to_string()),
-                    ])
-            );
-
-            let query = ps
-                .extend_proof_request_restrictions(
-                    &ProofRequestsVersion::V2,
-                    &Some(ATTR_NAME.to_string()),
-                    &None,
-                    ATTR_REFERENT,
-                    &Some(restriction),
-                    &Some(&extra_query),
-                )
-                .unwrap();
-
-            let expected_query = Query::And(vec![
-                Query::Or(vec![
-                    Query::Eq("schema_id".to_string(), SCHEMA_ID.to_string()),
-                    Query::Eq("schema_id".to_string(), "schema_id_2".to_string()),
-                ]),
-                Query::Or(vec![
-                    Query::Eq("name".to_string(), "Alex".to_string()),
-                    Query::Eq("name".to_string(), "Alexander".to_string()),
-                ]),
-                Query::Eq(
-                    "attr::name::marker".to_string(),
-                    ATTRIBUTE_EXISTENCE_MARKER.to_string(),
-                ),
-            ]);
-
-            assert_eq!(expected_query, query);
         }
     }
 }

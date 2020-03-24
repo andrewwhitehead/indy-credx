@@ -1,12 +1,13 @@
 use pyo3::class::PyObjectProtocol;
+use pyo3::exceptions::ValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyType};
 use pyo3::wrap_pyfunction;
 
 use indy_credx::domain::credential::{Credential, CredentialValues};
-use indy_credx::services as Services;
-use indy_credx::services::issuer::Issuer;
+use indy_credx::services::issuer::{CredentialRevocationConfig, Issuer};
 use indy_credx::services::prover::Prover;
+use indy_credx::services::tails::TailsFileReader;
 
 use crate::buffer::PySafeBuffer;
 use crate::cred_def::{PyCredentialDefinition, PyCredentialPrivateKey};
@@ -15,6 +16,10 @@ use crate::cred_request::{PyCredentialRequest, PyCredentialRequestMetadata};
 use crate::error::PyIndyResult;
 use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
+use crate::rev_reg::{
+    PyRevocationPrivateKey, PyRevocationRegistry, PyRevocationRegistryDefinition,
+    PyRevocationRegistryDelta,
+};
 
 #[pyclass(name=Credential)]
 pub struct PyCredential {
@@ -69,24 +74,60 @@ pub fn create_credential(
     cred_values: String,
     /* ^ FIXME add helper to prepare credential values (w/attribute encoding),
     and pass in safe buffer here */
-    // , revocation config
-) -> PyResult<PyCredential> {
+    rev_reg_def: Option<PyAcceptJsonArg<PyRevocationRegistryDefinition>>,
+    rev_reg: Option<PyAcceptJsonArg<PyRevocationRegistry>>,
+    rev_reg_key: Option<PyAcceptBufferArg<PyRevocationPrivateKey>>,
+    rev_reg_idx: Option<u32>,
+    tails_file_path: Option<String>,
+) -> PyResult<(
+    PyCredential,
+    Option<PyRevocationRegistry>,
+    Option<PyRevocationRegistryDelta>,
+)> {
     let cred_values =
         serde_json::from_str::<CredentialValues>(cred_values.as_ref()).map_py_err()?;
     let cred_private_key = &cred_private_key.extract_json(py)?;
-    let (credential, _delta) = py
+    let rev_reg_key = rev_reg_key.map(|key| key.extract_json(py)).transpose()?;
+    let revocation_config = match (
+        &rev_reg_def,
+        &rev_reg,
+        &rev_reg_key,
+        rev_reg_idx,
+        &tails_file_path,
+    ) {
+        (None, None, None, None, None) => None,
+        (Some(reg_def), Some(registry), Some(registry_key), Some(registry_idx), Some(path)) => {
+            Some(CredentialRevocationConfig {
+                reg_def,
+                registry,
+                registry_key,
+                registry_idx,
+                tails_reader: TailsFileReader::new(path.as_str()),
+            })
+        }
+        _ => {
+            return Err(PyErr::new::<ValueError, _>(
+                "Must provide all or none of the revocation parameters",
+            ))
+        }
+    };
+    let (credential, rev_reg, delta) = py
         .allow_threads(move || {
-            Issuer::new_credential::<Services::NullTailsAccessor>(
+            Issuer::new_credential(
                 &cred_def,
                 &cred_private_key,
                 &cred_offer,
                 &cred_request,
                 &cred_values,
-                None,
+                revocation_config,
             )
         })
         .map_py_err()?;
-    Ok(PyCredential::embed_json(py, &credential)?)
+    Ok((
+        PyCredential::embed_json(py, &credential)?,
+        rev_reg.map(|reg| PyRevocationRegistry::from(reg)),
+        delta.map(|delta| PyRevocationRegistryDelta::from(delta)),
+    ))
 }
 
 #[pyfunction]
@@ -94,10 +135,10 @@ pub fn create_credential(
 pub fn process_credential(
     py: Python,
     cred: PyAcceptBufferArg<PyCredential>,
-    cred_req_meta: PyAcceptJsonArg<PyCredentialRequestMetadata>,
+    cred_request_metadata: PyAcceptJsonArg<PyCredentialRequestMetadata>,
     master_secret: PyAcceptBufferArg<PyMasterSecret>,
     cred_def: PyAcceptJsonArg<PyCredentialDefinition>,
-    // rev_reg_def: &PyRevocationRegistryDefinition,
+    rev_reg_def: Option<PyAcceptJsonArg<PyRevocationRegistryDefinition>>,
 ) -> PyResult<PyCredential> {
     let mut credential = cred.extract_json(py)?;
     let master_secret = master_secret.extract_json(py)?;
@@ -105,10 +146,10 @@ pub fn process_credential(
         .allow_threads(move || {
             Prover::process_credential(
                 &mut credential,
-                &cred_req_meta.inner,
+                &cred_request_metadata,
                 &master_secret,
-                &cred_def.inner,
-                None,
+                &cred_def,
+                rev_reg_def.as_ref().map(|def| &def.inner),
             )
             .and(Ok(credential))
         })

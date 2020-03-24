@@ -25,7 +25,9 @@ tempfile = "3.1.0"
 thiserror = "1.0.9"
 
 [dependencies.ursa]
-version = "0.3.2"
+#version = "0.3.2"
+git = "https://github.com/hyperledger/ursa"
+rev = "e5276e9b81faeb4fec02026a270789f3c3f67fdf"
 default-features = false
 # FIXME - we don't need ed25519, but ursa won't build without additional features
 features = ["ed25519", "cl_native", "log", "serde"]

@@ -21,7 +21,7 @@ use crate::cred_def::PyCredentialDefinition;
 use crate::error::PyIndyResult;
 use crate::helpers::{PyAcceptBufferArg, PyAcceptJsonArg, PyJsonArg, PyJsonSafeBuffer};
 use crate::master_secret::PyMasterSecret;
-use crate::rev_reg::PyRevocationRegistryDefinition;
+use crate::rev_reg::{PyRevocationRegistryDefinition, PyRevocationState};
 use crate::schema::PySchema;
 
 #[pyclass(name=Proof)]
@@ -117,7 +117,7 @@ pub fn create_proof(
     master_secret: PyAcceptBufferArg<PyMasterSecret>,
     schemas: HashMap<String, PyAcceptJsonArg<PySchema>>,
     cred_defs: HashMap<String, PyAcceptJsonArg<PyCredentialDefinition>>,
-    // rev_states: &HashMap<String, HashMap<u64, RevocationState>>,
+    rev_states: Option<HashMap<String, Vec<PyAcceptJsonArg<PyRevocationState>>>>,
 ) -> PyResult<PyProof> {
     let master_secret = master_secret.extract_json(py)?;
     let credentials =
@@ -135,6 +135,19 @@ pub fn create_proof(
         .iter()
         .map(|(k, cdef)| (CredentialDefinitionId(k.clone()), &cdef.inner))
         .collect();
+    let rev_state_refs = if let Some(ref rev_states) = rev_states {
+        rev_states
+            .iter()
+            .map(|(k, states)| {
+                (
+                    k.clone(),
+                    states.iter().map(|ref state| &state.inner).collect(),
+                )
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
     let proof = py
         .allow_threads(move || {
             Prover::create_proof(
@@ -144,7 +157,7 @@ pub fn create_proof(
                 &master_secret,
                 &schema_refs,
                 &cred_def_refs,
-                &HashMap::new(),
+                &rev_state_refs,
             )
         })
         .map_py_err()?;
