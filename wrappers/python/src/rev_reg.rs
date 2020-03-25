@@ -372,10 +372,44 @@ fn update_revocation_registry(
     ))
 }
 
+#[pyfunction]
+/// Merge two sequential revocation registry deltas
+fn merge_revocation_registry_deltas(
+    rev_reg_delta: PyAcceptJsonArg<PyRevocationRegistryDelta>,
+    other_rev_reg_delta: PyAcceptJsonArg<PyRevocationRegistryDelta>,
+) -> PyResult<PyRevocationRegistryDelta> {
+    let upd_delta = Issuer::merge_revocation_registry_deltas(&rev_reg_delta, &other_rev_reg_delta)
+        .map_py_err_msg(|| "Error merging revocation registry deltas")?; // FIXME combine error
+    Ok(PyRevocationRegistryDelta::from(upd_delta))
+}
+
+#[pyfunction]
+/// Revoke a single credential
+fn revoke_credential(
+    py: Python,
+    rev_reg: PyAcceptJsonArg<PyRevocationRegistry>,
+    max_cred_num: u32,
+    rev_reg_idx: u32,
+    tails_file_path: String,
+) -> PyResult<(PyRevocationRegistry, PyRevocationRegistryDelta)> {
+    let (rev_reg, rev_reg_delta) = py
+        .allow_threads(move || {
+            let tails_reader = TailsFileReader::new(tails_file_path.as_str());
+            Issuer::revoke_credential(&rev_reg, max_cred_num, rev_reg_idx, &tails_reader)
+        })
+        .map_py_err_msg(|| "Error revoking credential revocation registry")?; // FIXME combine error
+    Ok((
+        PyRevocationRegistry::from(rev_reg),
+        PyRevocationRegistryDelta::from(rev_reg_delta),
+    ))
+}
+
 pub fn register(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(create_revocation_registry))?;
     m.add_wrapped(wrap_pyfunction!(create_or_update_revocation_state))?;
     m.add_wrapped(wrap_pyfunction!(update_revocation_registry))?;
+    m.add_wrapped(wrap_pyfunction!(merge_revocation_registry_deltas))?;
+    m.add_wrapped(wrap_pyfunction!(revoke_credential))?;
     m.add_class::<PyRevocationRegistry>()?;
     m.add_class::<PyRevocationRegistryDefinition>()?;
     m.add_class::<PyRevocationPrivateKey>()?;

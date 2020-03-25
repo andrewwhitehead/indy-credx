@@ -449,13 +449,12 @@ impl Issuer {
         Ok((credential, rev_reg, rev_reg_delta))
     }
 
-    pub fn revoke(
-        &self,
+    pub fn revoke_credential(
         rev_reg: &RevocationRegistry,
         max_cred_num: u32,
         rev_idx: u32,
         tails_reader: &TailsReader,
-    ) -> IndyResult<RevocationRegistryDelta> {
+    ) -> IndyResult<(RevocationRegistry, RevocationRegistryDelta)> {
         trace!(
             "revoke >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
             rev_reg,
@@ -469,22 +468,23 @@ impl Issuer {
         let rev_reg_delta =
             CryptoIssuer::revoke_credential(&mut rev_reg, max_cred_num, rev_idx, tails_reader)?;
 
+        let new_rev_reg =
+            RevocationRegistry::RevocationRegistryV1(RevocationRegistryV1 { value: rev_reg });
         let delta = RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
             value: rev_reg_delta,
         });
         trace!("revoke <<< rev_reg_delta {:?}", delta);
 
-        Ok(delta)
+        Ok((new_rev_reg, delta))
     }
 
     #[allow(dead_code)]
-    pub fn recovery(
-        &self,
+    pub fn recovery_credential(
         rev_reg: &RevocationRegistry,
         max_cred_num: u32,
         rev_idx: u32,
         tails_reader: &TailsReader,
-    ) -> IndyResult<RevocationRegistryDelta> {
+    ) -> IndyResult<(RevocationRegistry, RevocationRegistryDelta)> {
         trace!(
             "recovery >>> rev_reg: {:?}, max_cred_num: {:?}, rev_idx: {:?}",
             rev_reg,
@@ -498,12 +498,30 @@ impl Issuer {
         let rev_reg_delta =
             CryptoIssuer::recovery_credential(&mut rev_reg, max_cred_num, rev_idx, tails_reader)?;
 
+        let new_rev_reg =
+            RevocationRegistry::RevocationRegistryV1(RevocationRegistryV1 { value: rev_reg });
         let delta = RevocationRegistryDelta::RevocationRegistryDeltaV1(RevocationRegistryDeltaV1 {
             value: rev_reg_delta,
         });
         trace!("recovery <<< rev_reg_delta {:?}", delta);
 
-        Ok(delta)
+        Ok((new_rev_reg, delta))
+    }
+
+    pub fn merge_revocation_registry_deltas(
+        rev_reg_delta: &RevocationRegistryDelta,
+        other_delta: &RevocationRegistryDelta,
+    ) -> IndyResult<RevocationRegistryDelta> {
+        match (rev_reg_delta, other_delta) {
+            (
+                RevocationRegistryDelta::RevocationRegistryDeltaV1(v1),
+                RevocationRegistryDelta::RevocationRegistryDeltaV1(other),
+            ) => {
+                let mut result = v1.clone();
+                result.value.merge(&other.value)?;
+                Ok(RevocationRegistryDelta::RevocationRegistryDeltaV1(result))
+            }
+        }
     }
 }
 
